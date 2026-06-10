@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -62,4 +64,15 @@ func TestStopAndReset(t *testing.T) {
 	require.NoError(t, c.StopDaemon(context.Background()))
 	require.NoError(t, c.Reset(context.Background()))
 	require.Equal(t, []string{"POST /daemon/shutdown", "POST /daemon/reset"}, paths)
+}
+
+func TestEnsureRunning_AlreadyHealthy(t *testing.T) {
+	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"status":"healthy"}`))
+	}))
+	// binary path points at a fake that would FAIL if called — proves we don't start.
+	bin := filepath.Join(t.TempDir(), "sbx")
+	os.WriteFile(bin, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	c, _ := New(context.Background(), WithSocketPath(sock), WithBinaryPath(bin))
+	require.NoError(t, c.EnsureRunning(context.Background()))
 }

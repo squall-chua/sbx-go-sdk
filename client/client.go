@@ -31,6 +31,11 @@ func New(ctx context.Context, opts ...Option) (*Client, error) {
 		tr.SetTimeout(cfg.httpTimeout)
 	}
 	c := &Client{cfg: cfg, tr: tr}
+	if cfg.autoStart {
+		if err := c.EnsureRunning(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if cfg.strictVer {
 		res, err := c.CheckVersion(ctx)
 		if err != nil {
@@ -40,8 +45,6 @@ func New(ctx context.Context, opts ...Option) (*Client, error) {
 			return nil, ErrIncompatibleVersion
 		}
 	}
-	// NOTE: the cfg.autoStart (-> EnsureRunning) branch is wired into New in a
-	// later task, once EnsureRunning is defined.
 	return c, nil
 }
 

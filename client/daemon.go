@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"net/http"
+	"time"
 )
 
 // Health is the /health response.
@@ -97,4 +98,54 @@ func (c *Client) Reset(ctx context.Context) error {
 		return mapHTTPError("reset", err)
 	}
 	return nil
+}
+
+// StartOptions configures daemon start.
+type StartOptions struct {
+	Policy string // "allow-all" | "balanced" | "deny-all"; empty = daemon default
+}
+
+// EnsureRunning returns nil if the daemon is healthy; otherwise it starts it
+// (shell-out) and waits up to ~30s for the socket to become healthy.
+func (c *Client) EnsureRunning(ctx context.Context) error {
+	if _, err := c.Health(ctx); err == nil {
+		return nil
+	}
+	if err := c.StartDaemon(ctx, StartOptions{}); err != nil {
+		return err
+	}
+	return c.waitHealthy(ctx, 30*time.Second)
+}
+
+// StartDaemon starts sandboxd via `sbx daemon start --detach` (shell-out).
+func (c *Client) StartDaemon(ctx context.Context, opts StartOptions) error {
+	r, err := c.runnerOrErr()
+	if err != nil {
+		return err
+	}
+	args := []string{"daemon", "start", "--detach"}
+	if opts.Policy != "" {
+		args = append(args, "--policy", opts.Policy)
+	}
+	if _, err := r.Capture(ctx, nil, args...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) waitHealthy(ctx context.Context, d time.Duration) error {
+	deadline := time.Now().Add(d)
+	for {
+		if _, err := c.Health(ctx); err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return ErrDaemonNotRunning
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
