@@ -1,0 +1,46 @@
+package secret
+
+import (
+	"context"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/squall-chua/sbx-go-sdk/client"
+	"github.com/stretchr/testify/require"
+)
+
+func recordingClient(t *testing.T, argFile string) *client.Client {
+	t.Helper()
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	l, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	srv := &http.Server{Handler: http.NewServeMux()}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+	bin := filepath.Join(t.TempDir(), "sbx")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+argFile+"\necho SECRET-TEXT\nexit 0\n"), 0o755))
+	c, err := client.New(context.Background(), client.WithSocketPath(sock), client.WithBinaryPath(bin))
+	require.NoError(t, err)
+	return c
+}
+
+func TestSecretOps(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := recordingClient(t, argFile)
+	ctx := context.Background()
+
+	require.NoError(t, SetCustom(ctx, c, "", CustomSecret{Host: "api.example.com", Env: "API_KEY", Value: "sk-123"}))
+	txt, err := List(ctx, c, "")
+	require.NoError(t, err)
+	require.Contains(t, txt, "SECRET-TEXT")
+	require.NoError(t, Remove(ctx, c, "mysandbox", "openai"))
+
+	data, _ := os.ReadFile(argFile)
+	lines := string(data)
+	require.Contains(t, lines, "secret set-custom -g --host api.example.com --env API_KEY --value sk-123")
+	require.Contains(t, lines, "secret ls")
+	require.Contains(t, lines, "secret rm mysandbox openai -f")
+}

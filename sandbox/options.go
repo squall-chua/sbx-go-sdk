@@ -1,5 +1,7 @@
 package sandbox
 
+import "io"
+
 // Option configures a sandbox Definition.
 type Option func(*Definition)
 
@@ -29,3 +31,15 @@ func WithTemplate(t string) Option { return func(d *Definition) { d.template = t
 
 // WithClone runs the agent on an in-container git clone instead of a bind mount.
 func WithClone() Option { return func(d *Definition) { d.clone = true } }
+
+// WithAgentArgs passes arguments to the agent process (placed after "--" in
+// `sbx run`). Repeatable; cumulative.
+func WithAgentArgs(args ...string) Option {
+	return func(d *Definition) { d.agentArgs = append(d.agentArgs, args...) }
+}
+
+// WithStdio overrides the terminal stdio used by Run (zero values inherit the
+// caller's os.Stdin/out/err).
+func WithStdio(in io.Reader, out, err io.Writer) Option {
+	return func(d *Definition) { d.stdin = in; d.stdout = out; d.stderr = err }
+}

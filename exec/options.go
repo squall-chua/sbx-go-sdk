@@ -2,6 +2,8 @@
 // detached, over the daemon's hijacking /exec/attach endpoint.
 package exec
 
+import "io"
+
 // processConfig accumulates exec options.
 type processConfig struct {
 	env        map[string]string
@@ -10,6 +12,8 @@ type processConfig struct {
 	privileged bool
 	tty        bool
 	autoStart  bool
+	muxOut     io.Writer
+	muxErr     io.Writer
 }
 
 // ProcessOption configures an exec invocation.
@@ -39,10 +43,17 @@ func WithPrivileged() ProcessOption { return func(c *processConfig) { c.privileg
 // WithTTY allocates a pseudo-TTY (raw stream, no stdcopy framing).
 func WithTTY() ProcessOption { return func(c *processConfig) { c.tty = true } }
 
-// WithAutoStart is reserved to transparently start a stopped sandbox before exec.
-// It is accepted but not yet wired in this release; start the sandbox explicitly
-// via sandbox.Start until then.
+// WithAutoStart transparently starts a stopped sandbox before exec. Without it,
+// Exec/ExecInteractive/ExecDetached return ErrSandboxNotRunning when the sandbox
+// is not running.
 func WithAutoStart() ProcessOption { return func(c *processConfig) { c.autoStart = true } }
+
+// WithMultiplexed routes the demultiplexed stdout and stderr streams to the given
+// writers instead of returning stdout via the reader. When set, the reader Exec
+// returns is empty.
+func WithMultiplexed(stdout, stderr io.Writer) ProcessOption {
+	return func(c *processConfig) { c.muxOut = stdout; c.muxErr = stderr }
+}
 
 // execBody is the JSON sent to POST /sandbox/{name}/exec/attach.
 type execBody struct {
