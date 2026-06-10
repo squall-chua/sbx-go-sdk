@@ -52,7 +52,8 @@ func httpStatus(resp *http.Response) error {
 }
 
 // Remove deletes a template image by ref (tag or id). REST DELETE
-// /docker/images/remove?name=<ref>.
+// /docker/images/remove?name=<ref>. The exact wire shape is unverified against a
+// live daemon; reconcile during integration, falling back to `sbx template rm`.
 func Remove(ctx context.Context, c *client.Client, ref string) error {
 	path := "/docker/images/remove?name=" + url.QueryEscape(ref)
 	resp, err := c.Transport().Do(ctx, http.MethodDelete, path, nil, nil)
@@ -66,7 +67,9 @@ func Remove(ctx context.Context, c *client.Client, ref string) error {
 }
 
 // Load imports an image tar into the runtime image store (REST POST
-// /docker/images/load with the tar as the request body).
+// /docker/images/load with the tar as the request body). The exact wire shape is
+// unverified against a live daemon; reconcile during integration, falling back to
+// `sbx template load`.
 func Load(ctx context.Context, c *client.Client, tar io.Reader) error {
 	resp, err := c.Transport().Do(ctx, http.MethodPost, "/docker/images/load", tar, nil)
 	if err != nil {
