@@ -53,11 +53,25 @@ per-resource packages, `Run()`/lifecycle/object-methods, low-level client expose
 as a **single Go module with per-resource packages** (not a multi-module workspace — YAGNI for a
 single-consumer automation SDK).
 
+The transport is **hybrid** (see [ADR-0001](../../adr/0001-hybrid-cli-shellout-plus-rest.md)):
+the SDK **shells out to the `sbx` binary** for orchestration-heavy operations that have no REST
+client path — `Create`, agent `Run`, `template save` — and uses the **daemon REST API** for
+everything that does (list/inspect/start/stop/remove, exec, ports, images, cp/attach via their
+hijack endpoints, secrets, daemon lifecycle). This was forced by reverse-engineering: the REST
+client ships no `CreateSandbox` builder; the CLI orchestrates creation client-side.
+
 Rejected alternatives:
+- **Reimplement create orchestration** over the engine layer — large, fragile, re-tracks a moving
+  internal target.
+- **Depend on REST `POST /sandbox`** — unused by the CLI, incomplete, returns `"not implemented"`.
+- **Shell out for everything** — loses typed structs/streaming/structured errors for runtime ops.
 - **oapi-codegen from a reconstructed spec** — the spec doesn't exist; authoring it is more work
   than writing structs, and the generated client is bypassed for hijack/file-tar/lifecycle anyway.
-- **Thin single-package client** — undershoots the end-to-end automation ergonomics.
 - **Multi-module workspace** — full docker/go-sdk fidelity, but unjustified ceremony here.
+
+> Domain vocabulary is fixed in [`CONTEXT.md`](../../../CONTEXT.md). Crucially, **`Run` means
+> "launch + interactively attach to the agent"** (matching `sbx run`), **not** docker/go-sdk's
+> "create + start". `Create` provisions without attaching; `Start`/`Stop` are VM lifecycle.
 
 ---
 
@@ -69,8 +83,9 @@ Module path: `github.com/mwchua/sbx-go-sdk` (placeholder — confirm before `go 
 sbx-go-sdk/
 ├── internal/transport/   # unix-socket http.Client; connection-hijack helper for attach
 ├── internal/api/         # low-level typed REST: DWARF-grounded structs + 1:1 route calls
+├── internal/cli/         # `sbx`-binary driver: locate binary, run create/run/save, parse output
 ├── client/               # Client (connection + daemon lifecycle); New(); DefaultClient; options
-├── sandbox/              # core resource: Run/Create + Sandbox object; lifecycle/feature files
+├── sandbox/              # core resource: Create + Sandbox object; lifecycle/feature files
 ├── exec/                 # ProcessOption, ExecResult, AttachSession (shared exec types)
 ├── secret/               # secrets / sandbox credentials
 ├── policy/               # network egress policy
@@ -78,8 +93,13 @@ sbx-go-sdk/
 ```
 
 **Layering.** `internal/api` is the low-level typed REST client (our equivalent of the moby client
-that `docker/go-sdk` wraps). `client` + resource packages are the high-level layer; `client.Client`
-exposes the low-level surface via an `API()` accessor for advanced use.
+that `docker/go-sdk` wraps); `internal/cli` is the `sbx`-binary driver for orchestrated ops.
+`client` + resource packages are the high-level layer; `client.Client` exposes the low-level REST
+surface via an `API()` accessor for advanced use. Resource methods route to whichever driver fits
+(per ADR-0001).
+
+**Sandbox identity:** name-primary. Sandboxes are addressed by name (unique per daemon, matches
+`/sandbox/{name}`); the `Sandbox` handle exposes `Name()` and `ID()` (id informational, from Inspect).
 
 **Resource packages depend on `client`**, defaulting to `client.DefaultClient` unless
 `WithClient(cli)` is passed — mirroring `container.Run(ctx, …)`.
@@ -95,13 +115,19 @@ exposes the low-level surface via an `API()` accessor for advanced use.
 ```go
 cli, err := client.New(ctx,
     client.WithSocketPath("/custom/sandboxd.sock"), // default: resolved XDG path
-    client.WithAutoStart(),     // EnsureRunning before first call
-    client.WithVersionCheck(),  // POST /version; error on "incompatible"
+    client.WithBinaryPath("/usr/bin/sbx"),          // default: look up "sbx" on PATH
+    client.WithAutoStart(),       // EnsureRunning before first call
+    client.WithStrictVersion(),   // hard-fail on incompatible; default is warn+proceed
     client.WithHTTPTimeout(30*time.Second),
 )
 // or the lazy default:
 cli := client.DefaultClient
 ```
+
+**Version policy** (lenient by default, strict opt-in): on connect the SDK declares its client
+version and calls `POST /version`. On `incompatible`/`unknown` it logs a warning and proceeds;
+`WithStrictVersion()` makes it return `ErrIncompatibleVersion`. Tested range: `sbx` v0.32.0 /
+daemon api 0.10.0; a contract test warns on drift.
 
 | Method | Route | Notes |
 |---|---|---|
@@ -123,10 +149,15 @@ cli := client.DefaultClient
 
 ## 6. `sandbox` package — core resource
 
-`Run` = create + start + wait-ready (mirrors `container.Run`); `Create` = create only.
+Verb model (domain-faithful to sbx; see `CONTEXT.md`):
+- `sandbox.Create(ctx, …)` → **provision without attaching** (sbx `create`). **Shell-out** (ADR-0001).
+- `sb.Run(ctx, …)` → **launch + interactively attach the agent** (sbx `run`); returns an
+  `*exec.AttachSession`. Create-if-missing semantics like the CLI. **Shell-out** (interactive).
+- `sb.Start(ctx)` / `sb.Stop(ctx)` → sandbox VM lifecycle (REST). `sb.Exec(…)` → arbitrary command.
+- There is **no** `sandbox.Run = create+start`. Don't reintroduce docker/go-sdk's meaning.
 
 ```go
-sb, err := sandbox.Run(ctx,
+sb, err := sandbox.Create(ctx,
     sandbox.WithAgent("claude"),     // claude|codex|copilot|cursor|docker-agent|droid|gemini|kiro|opencode|shell
     sandbox.WithWorkspace("."),      // repeatable; ":ro" suffix supported
     sandbox.WithName("my-proj"),
@@ -137,61 +168,81 @@ sb, err := sandbox.Run(ctx,
     sandbox.WithClone(),             // in-container git clone instead of bind-mount
 )
 defer sb.Remove(ctx)
+
+// Interactive agent session (rarely scripted; for human/terminal use):
+// sess, err := sb.Run(ctx, sandbox.WithAgentArgs("--model", "opus"))
 ```
 
-| API | Route |
+| API | Transport |
 |---|---|
-| `sandbox.List(ctx)` | `GET /sandbox` |
-| `sandbox.Get(ctx, name)` | `GET /sandbox/{name}` |
-| `sb.Start(ctx)` | `POST /sandbox/{name}/start` |
-| `sb.Stop(ctx)` | `POST /sandbox/{name}/stop` |
-| `sb.Remove(ctx)` | `DELETE /sandbox/{name}` |
-| `sb.Inspect(ctx)` / `sb.State()` / `sb.ID()` / `sb.Name()` | `GET /sandbox/{name}` |
-| `sb.SaveTemplate(ctx, tag)` | `POST /sandbox/{name}/save` |
+| `sandbox.Create(ctx, opts…)` | **shell-out** `sbx create …` |
+| `sb.Run(ctx, opts…)` → AttachSession | **shell-out** `sbx run …` (hijack stdio) |
+| `sandbox.List(ctx)` | REST `GET /sandbox` |
+| `sandbox.Get(ctx, name)` | REST `GET /sandbox/{name}` |
+| `sb.Start(ctx)` | REST `POST /sandbox/{name}/start` |
+| `sb.Stop(ctx)` | REST `POST /sandbox/{name}/stop` |
+| `sb.Remove(ctx)` | REST `DELETE /sandbox/{name}` |
+| `sb.Inspect(ctx)` / `sb.State()` / `sb.ID()` / `sb.Name()` | REST `GET /sandbox/{name}` |
+| `sb.SaveTemplate(ctx, tag)` | **shell-out** `sbx template save …` |
 
 **Option semantics** (from docker/go-sdk): maps cumulative; slices last-write-wins with
-`WithAdditional*` helpers; `WithWorkspace` is additive (repeatable).
+`WithAdditional*` helpers; `WithWorkspace` is additive (repeatable). Options map to `sbx create`
+flags for the shell-out (`--name`, `--cpus`, `--memory`, `--profile`, `--template`, `--clone`,
+`--kit`).
 
-**OPEN QUESTION (O1) — sandbox creation.** `POST /sandbox {}` returned `{"message":"not implemented"}`
-on the live daemon, suggesting creation may be CLI-side orchestration rather than a single REST call.
-**Resolution:** before implementing, trace a real `sbx -D create …` against the live socket and/or
-read the create flow from DWARF. If creation is genuinely multi-step, `sandbox.Run` replicates the
-documented CLI orchestration sequence. This part will not be hand-waved.
+**RESOLVED (was O1) — creation is shell-out.** The REST client has no `CreateSandbox` builder; the
+CLI orchestrates creation. `Create`/`Run`/`SaveTemplate` shell out to `sbx` (ADR-0001). Remaining
+detail for implementation: exact flag mapping and parsing `sbx create` success output to obtain the
+new sandbox name/id (then `Get` to hydrate the handle).
 
 ---
 
 ## 7. `exec` package — exec & attach
 
-### 7.1 Non-interactive (mirrors docker/go-sdk `Exec`)
-Fixed signature (no arity changes via options):
+`Exec` is the **automation workhorse** (sbx `run` is interactive-only, so headless agent
+automation = exec-ing each agent's own non-interactive CLI, e.g. `claude -p`). Three methods,
+one per return shape (explicit over option-driven return magic). All take shared
+`exec.ProcessOption`s: `WithEnv`, `WithEnvFile`, `WithWorkdir`, `WithUser`, `WithPrivileged`,
+`WithTTY`, `WithStdin`.
+
+**Precondition / auto-start (resolved):** exec methods require a **running** sandbox; on a stopped
+one they return `ErrSandboxNotRunning`. Opt-in transparent start via `exec.WithAutoStart()` (or a
+client-level toggle) — no hidden VM boots by default.
+
+### 7.1 `Exec` — run to completion, capture
 ```go
 func (sb *Sandbox) Exec(ctx context.Context, cmd []string, opts ...exec.ProcessOption) (int, io.Reader, error)
 
-code, r, err := sb.Exec(ctx, []string{"go", "test", "./..."},
-    exec.WithWorkdir("/work"),
-    exec.WithEnv(map[string]string{"CI": "1"}),
-)
+code, r, err := sb.Exec(ctx, []string{"claude", "-p", "summarise the repo"},
+    exec.WithWorkdir("/work"), exec.WithEnv(map[string]string{"CI": "1"}))
 ```
-- `POST /sandbox/{name}/exec` creates the exec; response carries an exec id.
-- Output is a **Docker multiplexed stdcopy stream**. By default the returned `io.Reader` is that
-  raw stream as-is.
-- Demuxing is opt-in via a `ProcessOption` that supplies destination writers —
-  `exec.WithMultiplexed(stdout, stderr io.Writer)` — which copies the demuxed streams to those
-  writers (via `moby/moby/api/pkg/stdcopy`) before returning; the returned `io.Reader` is then drained.
-  The signature is unchanged either way.
-- Exit code retrieved via `GET /sandbox/{name}/exec/{id}` (`InspectExec`).
+- `POST /sandbox/{name}/exec`; output is a **Docker multiplexed stdcopy stream**; the returned
+  `io.Reader` is that raw stream by default.
+- `exec.WithMultiplexed(stdout, stderr io.Writer)` copies demuxed streams to the given writers
+  (via `moby/moby/api/pkg/stdcopy`) before returning. Signature unchanged either way.
+- Exit code via `GET /sandbox/{name}/exec/{id}` (`InspectExec`).
 
-### 7.2 Interactive attach
+### 7.2 `ExecInteractive` — bidirectional stream
 ```go
-sess, err := sb.Attach(ctx, exec.WithTTY(), exec.WithStdin(os.Stdin))
+func (sb *Sandbox) ExecInteractive(ctx context.Context, cmd []string, opts ...exec.ProcessOption) (*exec.AttachSession, error)
+
+sess, _ := sb.ExecInteractive(ctx, []string{"bash"}, exec.WithTTY(), exec.WithStdin(os.Stdin))
 go io.Copy(os.Stdout, sess.Stdout)
-sess.Resize(ctx, 120, 40)  // POST /sandbox/{name}/exec/{id}/resize
-code, err := sess.Wait(ctx)
+sess.Resize(ctx, 120, 40)   // POST /sandbox/{name}/exec/{id}/resize
+code, _ := sess.Wait(ctx)
 sess.Close()
 ```
-- `AttachSession` wraps the **hijacked connection** (HTTP `Upgrade`/raw stream).
-- TTY allocated → raw passthrough; otherwise stdcopy-demuxed. Same semantics as `docker attach`.
-- Cancellation of `ctx` closes the hijacked conn.
+- `AttachSession` wraps the **hijacked connection**; TTY → raw passthrough, else stdcopy-demuxed.
+  `ctx` cancellation closes the conn. `sb.Run` (agent) is a shell-out wrapper that yields the same
+  `AttachSession` type.
+
+### 7.3 `ExecDetached` — background + poll
+```go
+func (sb *Sandbox) ExecDetached(ctx context.Context, cmd []string, opts ...exec.ProcessOption) (execID string, err error)
+func (sb *Sandbox) InspectExec(ctx context.Context, execID string) (exec.State, error)
+```
+- Starts the command in the background (sbx `exec -d`), returns the exec id; poll `InspectExec`
+  for running/exit state.
 
 **OPEN QUESTION (O3) — attach handshake.** Exact `Upgrade` header values, content-type
 (`application/vnd.docker.*`), and half-close behavior to be confirmed by tracing a live attach and
@@ -239,20 +290,28 @@ layer, and either implement or explicitly defer those to a later version.
 
 ---
 
-## 11. Open questions (resolved during spec-resolution / first implementation slice)
+## 11. Open questions
 
-1. **O1 — create:** real `POST /sandbox` body, or is `Run` an orchestration sequence? (trace `sbx -D create`)
-2. **O2 — routes:** exact secret/policy/template endpoints; which need the engine layer.
-3. **O3 — attach:** `Upgrade` handshake, content-types, half-close.
-4. Module path confirmation before `go mod init`.
+Resolved by the grilling session (2026-06-10):
+- **O1 — create:** RESOLVED. No REST `CreateSandbox` client; `Create`/`Run`/`SaveTemplate` shell out
+  to `sbx` (ADR-0001). Remaining impl detail: flag mapping + parsing `sbx create` output.
+- **Verb model, automation model, exec shape, auto-start, version policy, identity:** resolved — see
+  §6–7, `CONTEXT.md`, ADR-0001.
+
+Still open (resolve during first implementation slices):
+1. **O2 — routes:** exact secret/policy/template endpoints; which are REST vs shell-out vs engine layer.
+2. **O3 — attach:** `Upgrade` handshake, content-types, half-close (for `ExecInteractive`).
+3. **Shell-out output parsing:** stable way to get the new sandbox name/id from `sbx create`
+   (prefer a `--quiet`/machine-readable mode if one exists; else parse + `Get` to confirm).
+4. Module path confirmation before `go mod init` (default `github.com/mwchua/sbx-go-sdk`).
 5. Env var name for socket override (verify against `sandboxlib`).
 
 ---
 
 ## 12. Milestones (indicative)
 
-1. `internal/transport` + `client` (daemon lifecycle, health/version) — smallest end-to-end slice.
-2. `sandbox` lifecycle (resolve O1) — create/list/inspect/start/stop/remove.
+1. `internal/transport` + `internal/cli` + `client` (daemon lifecycle, health/version) — smallest slice.
+2. `sandbox` lifecycle — `Create`/`Run` (shell-out) + list/inspect/start/stop/remove (REST).
 3. `exec` non-interactive (stdcopy demux).
 4. `exec` interactive attach + resize (resolve O3).
 5. files / ports.
