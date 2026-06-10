@@ -160,7 +160,9 @@ Verb model (domain-faithful to sbx; see `CONTEXT.md`):
   create-if-missing. **Shell-out**; stdio inherits the caller's terminal by default
   (`sandbox.WithStdio(in,out,err)` to override), blocks until the agent exits, returns its exit
   code. It does **not** return an `AttachSession` — that mold fits only the hijack-backed
-  `ExecInteractive`, not a PTY/child-process session (Q8).
+  `ExecInteractive`, not a PTY/child-process session (Q8). A package-level one-shot
+  `sandbox.Run(ctx, WithAgent("claude"), WithWorkspace("."))` mirrors `sbx run AGENT` (create-if-
+  missing + attach); the method re-attaches an existing handle (Q15).
 - `sb.Start(ctx)` / `sb.Stop(ctx)` → sandbox VM lifecycle (REST). `sb.Exec(…)` → arbitrary command.
 - There is **no** `sandbox.Run = create+start`. Don't reintroduce docker/go-sdk's meaning.
 
