@@ -341,12 +341,24 @@ insufficient).
 
 ## 9. Cross-cutting concerns
 
-- **Schemas (Q14 — full DWARF extraction):** a one-shot generator (`internal/tools/dwarfgen`, using
-  stdlib `debug/elf` + `debug/dwarf`) walks the unstripped `sbx` binary's `debug_info`, finds the
-  `github.com/docker/sandboxes/sandboxapi.*` struct/enum types, and emits exact Go definitions
-  (field names, types, json tags). Output is curated into `internal/api` and validated against
-  live-daemon JSON. **No guessed structs.** The generator + the source binary's build id are recorded
-  for future re-sync when `sbx` updates. (First implementation slice includes building `dwarfgen`.)
+- **Schemas (Q14 + DG1–DG6 — DWARF extraction with a tag caveat):** a one-shot generator
+  `internal/tools/dwarfgen` (stdlib `debug/elf` + `debug/dwarf`) walks the unstripped `sbx` binary's
+  `debug_info`. **Verified empirically:** DWARF yields exact field **names, Go types, nesting, and
+  pointer→optional** info, but **NOT struct tags** (`dwarf.StructField` has no tag). So:
+  - **Structure** from DWARF: field names/types, `*T`→`T`+`omitempty`, `*[]T`→`[]T,omitempty`,
+    `time.Time` preserved, defined string types kept as named enums (DG3).
+  - **JSON tags** by convention: `json:"snake_case(FieldName)"` (DG1), **backstopped by a generated
+    round-trip test** that feeds real daemon JSON through the structs and fails on any unmapped or
+    mismatched field. This test doubles as drift detection.
+  - **Roots + closure (DG2):** a curated root list (~20 REST req/resp types) + automatic transitive
+    closure; not all `sandboxapi.*`.
+  - **Enum values (DG4):** type from DWARF; values (e.g. `SANDBOX_STATUS_RUNNING/STOPPED`) from binary
+    string constants + live JSON, emitted as typed constants.
+  - **Output (DG5):** checked-in generated `internal/api/types_gen.go`; header records the source
+    binary build-id. Not build-time codegen (the `sbx` binary is not a build dependency).
+  - **Re-sync (DG6):** on `sbx` update, re-run dwarfgen, diff, review, bump the tested version range;
+    the api_version contract test signals when due.
+  **No guessed structs.** (First implementation slice = build `dwarfgen` + the validation test.)
 - **Errors (Q11):** two typed errors — `APIError{Op string; Status int; Message string}` (REST,
   parsed from `{"message": …}`) and `CLIError{Args []string; ExitCode int; Stderr string}`
   (shell-out) — plus curated sentinels (`ErrSandboxNotFound`, `ErrSandboxExists`,
