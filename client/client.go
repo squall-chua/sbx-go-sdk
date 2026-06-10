@@ -67,6 +67,9 @@ func (c *Client) runnerOrErr() (*cli.Runner, error) {
 	return r, nil
 }
 
+// Runner resolves and returns the sbx-binary runner (for shell-out ops in sibling packages).
+func (c *Client) Runner() (*cli.Runner, error) { return c.runnerOrErr() }
+
 // DefaultClient is a lazily-initialized client over the default socket.
 // It is created on first use by callers that want zero-config access.
 var DefaultClient = mustDefault()
