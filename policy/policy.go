@@ -5,6 +5,7 @@ package policy
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
@@ -52,4 +53,54 @@ func RemoveRule(ctx context.Context, c *client.Client, scope string) error {
 // Reset clears all policies back to defaults.
 func Reset(ctx context.Context, c *client.Client) error {
 	return run(ctx, c, "policy", "reset")
+}
+
+// capture runs an sbx subcommand and returns its stdout text.
+func capture(ctx context.Context, c *client.Client, args ...string) (string, error) {
+	r, err := c.Runner()
+	if err != nil {
+		return "", err
+	}
+	return r.Capture(ctx, nil, args...)
+}
+
+// List returns the raw `sbx policy ls [SCOPE]` text (no --json upstream). scope ""
+// lists global+all.
+func List(ctx context.Context, c *client.Client, scope string) (string, error) {
+	args := []string{"policy", "ls"}
+	if scope != "" {
+		args = append(args, scope)
+	}
+	return capture(ctx, c, args...)
+}
+
+// Profiles returns the raw `sbx policy profile ls` text.
+func Profiles(ctx context.Context, c *client.Client) (string, error) {
+	return capture(ctx, c, "policy", "profile", "ls")
+}
+
+// LogEntry is one allowed/blocked host record from the proxy.
+type LogEntry struct {
+	Host       string `json:"host"`
+	VMName     string `json:"vm_name"`
+	ProxyType  string `json:"proxy_type"`
+	Rule       string `json:"rule"`
+	LastSeen   string `json:"last_seen"`
+	Since      string `json:"since"`
+	CountSince int    `json:"count_since"`
+}
+
+// PolicyLog is the /network/log response.
+type PolicyLog struct {
+	BlockedHosts []LogEntry `json:"blocked_hosts"`
+	AllowedHosts []LogEntry `json:"allowed_hosts"`
+}
+
+// Log returns the proxy's allowed/blocked-host log (REST GET /network/log).
+func Log(ctx context.Context, c *client.Client) (*PolicyLog, error) {
+	var pl PolicyLog
+	if err := c.Transport().DoJSON(ctx, http.MethodGet, "/network/log", nil, &pl); err != nil {
+		return nil, client.MapError("policy-log", err)
+	}
+	return &pl, nil
 }

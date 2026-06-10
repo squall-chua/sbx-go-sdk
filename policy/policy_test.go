@@ -44,3 +44,38 @@ func TestPolicyMutations(t *testing.T) {
 	require.Contains(t, lines, "policy rm network --sandbox mysandbox")
 	require.Contains(t, lines, "policy reset")
 }
+
+func TestPolicyListProfilesAndLog(t *testing.T) {
+	// List/Profiles: capturing runner returns the fake sbx stdout.
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	// fake sbx prints a banner to stdout so List returns non-empty text.
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	l, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/network/log", r.URL.Path)
+		w.Write([]byte(`{"blocked_hosts":[],"allowed_hosts":[{"host":"api.github.com:443","vm_name":"s1","proxy_type":"forward","rule":"domain-allowed","last_seen":"2026-06-10T11:29:10Z","since":"2026-06-10T11:29:10Z","count_since":2}]}`))
+	})}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+	bin := filepath.Join(t.TempDir(), "sbx")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+argFile+"\necho POLICY-TEXT\nexit 0\n"), 0o755))
+	c, err := client.New(context.Background(), client.WithSocketPath(sock), client.WithBinaryPath(bin))
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	txt, err := List(ctx, c, "s1")
+	require.NoError(t, err)
+	require.Contains(t, txt, "POLICY-TEXT")
+	data, _ := os.ReadFile(argFile)
+	require.Contains(t, string(data), "policy ls s1")
+
+	prof, err := Profiles(ctx, c)
+	require.NoError(t, err)
+	require.Contains(t, prof, "POLICY-TEXT")
+
+	logs, err := Log(ctx, c)
+	require.NoError(t, err)
+	require.Len(t, logs.AllowedHosts, 1)
+	require.Equal(t, "api.github.com:443", logs.AllowedHosts[0].Host)
+}
