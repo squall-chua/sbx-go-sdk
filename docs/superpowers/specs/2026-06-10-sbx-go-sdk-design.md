@@ -81,8 +81,9 @@ Module path: `github.com/mwchua/sbx-go-sdk` (placeholder — confirm before `go 
 
 ```
 sbx-go-sdk/
+├── internal/tools/dwarfgen/  # one-shot: dump sandboxapi.* structs from the binary's DWARF (Q14)
 ├── internal/transport/   # unix-socket http.Client; connection-hijack helper for attach
-├── internal/api/         # low-level typed REST: DWARF-grounded structs + 1:1 route calls
+├── internal/api/         # low-level typed REST: DWARF-extracted structs + 1:1 route calls
 ├── internal/cli/         # `sbx`-binary driver: locate binary, run create/run/save, parse output
 ├── client/               # Client (connection + daemon lifecycle); New(); DefaultClient; options
 ├── sandbox/              # core resource: Create + Sandbox object; lifecycle/feature files
@@ -316,8 +317,12 @@ insufficient).
 
 ## 9. Cross-cutting concerns
 
-- **Schemas:** extracted from DWARF (exact field names, types, json tags), validated against live JSON.
-  No guessed structs. A generation/extraction note is kept alongside the structs for future re-sync.
+- **Schemas (Q14 — full DWARF extraction):** a one-shot generator (`internal/tools/dwarfgen`, using
+  stdlib `debug/elf` + `debug/dwarf`) walks the unstripped `sbx` binary's `debug_info`, finds the
+  `github.com/docker/sandboxes/sandboxapi.*` struct/enum types, and emits exact Go definitions
+  (field names, types, json tags). Output is curated into `internal/api` and validated against
+  live-daemon JSON. **No guessed structs.** The generator + the source binary's build id are recorded
+  for future re-sync when `sbx` updates. (First implementation slice includes building `dwarfgen`.)
 - **Errors (Q11):** two typed errors — `APIError{Op string; Status int; Message string}` (REST,
   parsed from `{"message": …}`) and `CLIError{Args []string; ExitCode int; Stderr string}`
   (shell-out) — plus curated sentinels (`ErrSandboxNotFound`, `ErrSandboxNotRunning`,
@@ -372,6 +377,7 @@ Still open (resolve during first implementation slices):
 
 ## 12. Milestones (indicative)
 
+0. `internal/tools/dwarfgen` → extract `sandboxapi.*` structs into `internal/api` (unblocks typing).
 1. `internal/transport` + `internal/cli` + `client` (daemon lifecycle, health/version) — smallest slice.
 2. `sandbox` lifecycle — `Create`/`Run` (shell-out) + list/inspect/start/stop/remove (REST).
 3. `exec` non-interactive (stdcopy demux).
