@@ -46,6 +46,10 @@ func parseMessage(body []byte) string {
 	return string(body)
 }
 
+// MapError converts a transport error to a typed APIError/sentinel. Exported for
+// sibling packages (sandbox, exec).
+func MapError(op string, err error) error { return mapHTTPError(op, err) }
+
 // mapHTTPError converts a transport.HTTPStatusError into an *APIError, joined with
 // a sentinel when the status maps to one. Non-transport errors pass through.
 func mapHTTPError(op string, err error) error {
