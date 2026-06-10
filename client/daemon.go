@@ -43,3 +43,58 @@ func (c *Client) CheckVersion(ctx context.Context) (string, error) {
 	}
 	return resp.Result, nil
 }
+
+// DaemonInfo is the /daemon/info response.
+type DaemonInfo struct {
+	APISocket    string `json:"api_socket"`
+	DockerSocket string `json:"docker_socket"`
+}
+
+// Info returns the daemon's socket paths.
+func (c *Client) Info(ctx context.Context) (*DaemonInfo, error) {
+	var d DaemonInfo
+	if err := c.tr.DoJSON(ctx, http.MethodGet, "/daemon/info", nil, &d); err != nil {
+		return nil, mapHTTPError("daemon-info", err)
+	}
+	return &d, nil
+}
+
+// LogLevels is the /daemon/loglevel response.
+type LogLevels struct {
+	General string `json:"general"`
+	Proxy   string `json:"proxy"`
+}
+
+// LogLevels returns the daemon's per-category log levels.
+func (c *Client) LogLevels(ctx context.Context) (*LogLevels, error) {
+	var l LogLevels
+	if err := c.tr.DoJSON(ctx, http.MethodGet, "/daemon/loglevel", nil, &l); err != nil {
+		return nil, mapHTTPError("loglevel", err)
+	}
+	return &l, nil
+}
+
+// SetLogLevel sets a category's level. category: "proxy", "general", or "all".
+func (c *Client) SetLogLevel(ctx context.Context, category, level string) error {
+	body := map[string]string{"target": category, "level": level}
+	if err := c.tr.DoJSON(ctx, http.MethodPost, "/daemon/loglevel/set", body, nil); err != nil {
+		return mapHTTPError("set-loglevel", err)
+	}
+	return nil
+}
+
+// StopDaemon shuts the daemon down (REST).
+func (c *Client) StopDaemon(ctx context.Context) error {
+	if err := c.tr.DoJSON(ctx, http.MethodPost, "/daemon/shutdown", nil, nil); err != nil {
+		return mapHTTPError("shutdown", err)
+	}
+	return nil
+}
+
+// Reset resets all sandboxes and daemon state (REST).
+func (c *Client) Reset(ctx context.Context) error {
+	if err := c.tr.DoJSON(ctx, http.MethodPost, "/daemon/reset", nil, nil); err != nil {
+		return mapHTTPError("reset", err)
+	}
+	return nil
+}
