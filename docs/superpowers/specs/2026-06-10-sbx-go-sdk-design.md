@@ -150,6 +150,28 @@ Only `EnsureRunning`/`StartDaemon` shell out (you can't start a process via REST
 REST. The `sbx` binary is resolved from PATH or `WithBinaryPath`. The SDK does **not** re-exec
 arbitrary binaries beyond the documented `sbx` calls.
 
+### 5.1 Shell-out driver (`internal/cli`)
+
+Backs `Create`, agent `Run`, `template save`, and daemon `start`. Design (grilled D1–D8):
+
+- **Binary discovery (D7):** `exec.LookPath("sbx")` or `client.WithBinaryPath`; resolved once and
+  cached on `Client`; `ErrBinaryNotFound` if absent.
+- **Identity contract (D1) — SDK owns the name:** the driver always passes an explicit `--name`
+  and never parses `sbx create` output. Then `Get(name)` hydrates the handle deterministically.
+- **Name generation (D2):** `name = WithName` (else `<agent>-<sanitize(basename(primaryWorkspace))>`),
+  sanitized to `[A-Za-z0-9.+-]`, collision-resolved against `sandbox.List` by appending `-N`
+  (replicates the CLI). Explicit `WithName` that collides → `ErrSandboxExists`.
+- **Arg/injection safety (D8):** `exec.Command` (no shell, no interpolation). Workspaces resolved to
+  absolute (always `/…`, never mistaken for flags); agent args passed after `--` for `Run`; name
+  charset validated.
+- **Env (D3):** inherit `os.Environ()` + `WithEnv` additions (`sbx` needs `HOME`/`PATH`/`DOCKER_*`).
+- **Cancellation (D4):** `exec.CommandContext` with `Cmd.Cancel` → SIGTERM and `Cmd.WaitDelay` →
+  SIGKILL escalation.
+- **Output (D5):** non-interactive ops capture stdout+stderr; optional `WithProgressWriter` streams
+  `sbx create` progress (image pulls) live; non-zero exit → `CLIError{Args, ExitCode, Stderr}`.
+- **TTY (D6) — inherit-only in v1:** `Run` inherits the caller's terminal (`WithStdio` may redirect);
+  **no PTY allocation**; non-TTY stdin → clear error (mirrors sbx's `"not a terminal"` guard).
+
 ---
 
 ## 6. `sandbox` package — core resource
@@ -327,8 +349,9 @@ insufficient).
   for future re-sync when `sbx` updates. (First implementation slice includes building `dwarfgen`.)
 - **Errors (Q11):** two typed errors — `APIError{Op string; Status int; Message string}` (REST,
   parsed from `{"message": …}`) and `CLIError{Args []string; ExitCode int; Stderr string}`
-  (shell-out) — plus curated sentinels (`ErrSandboxNotFound`, `ErrSandboxNotRunning`,
-  `ErrExecNotFound`, `ErrIncompatibleVersion`, `ErrDaemonNotRunning`, `ErrBinaryNotFound`),
+  (shell-out) — plus curated sentinels (`ErrSandboxNotFound`, `ErrSandboxExists`,
+  `ErrSandboxNotRunning`, `ErrExecNotFound`, `ErrIncompatibleVersion`, `ErrDaemonNotRunning`,
+  `ErrBinaryNotFound`),
   `errors.Is`/`As`-friendly. REST status/messages map to sentinels; **no fragile stderr→sentinel
   parsing** (expose `CLIError` raw).
 - **Context (E2):** every method takes `context.Context`. REST → cancels the HTTP request;
