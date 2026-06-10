@@ -50,3 +50,12 @@ func (s *Sandbox) Inspect(ctx context.Context) (api.SandboxInfo, error) {
 	s.info = info
 	return info, nil
 }
+
+// NewForTest builds a Sandbox handle around a client and name without a daemon
+// round-trip. For tests only.
+func NewForTest(c *client.Client, name string) *Sandbox {
+	return &Sandbox{cli: c, info: api.SandboxInfo{Name: name}}
+}
+
+// Client returns the underlying client (used by the exec package).
+func (s *Sandbox) Client() *client.Client { return s.cli }
