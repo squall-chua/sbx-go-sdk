@@ -85,3 +85,12 @@ func TestExec_CaptureAndExit(t *testing.T) {
 	require.Equal(t, "hello\n", string(out))
 	require.Equal(t, 0, code)
 }
+
+func TestInspectExec(t *testing.T) {
+	c, _ := attachStub(t)
+	sb := sandbox.NewForTest(c, "s1")
+	st, err := InspectExec(context.Background(), sb, "e1")
+	require.NoError(t, err)
+	require.Equal(t, 0, st.ExitCode)
+	require.False(t, st.Running)
+}

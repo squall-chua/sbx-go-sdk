@@ -60,6 +60,27 @@ func inspectExec(ctx context.Context, sb *sandbox.Sandbox, execID string) (State
 	return st, nil
 }
 
+// InspectExec returns the state of a previously-started exec.
+func InspectExec(ctx context.Context, sb *sandbox.Sandbox, execID string) (State, error) {
+	return inspectExec(ctx, sb, execID)
+}
+
+// ExecDetached starts cmd in the background and returns its exec id. Poll
+// InspectExec for completion. Uses the attach endpoint but does not stream output.
+func ExecDetached(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...ProcessOption) (string, error) {
+	body := buildBody(cmd, opts...)
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	conn, hdr, err := sb.Client().Transport().Hijack(ctx, "/sandbox/"+sb.Name()+"/exec/attach", raw)
+	if err != nil {
+		return "", client.MapError("exec-detached", err)
+	}
+	conn.Close() // don't consume the stream; the command keeps running
+	return hdr.Get("Sandboxes-Exec-Id"), nil
+}
+
 type discardCloser struct{}
 
 func (discardCloser) Write(p []byte) (int, error) { return len(p), nil }
