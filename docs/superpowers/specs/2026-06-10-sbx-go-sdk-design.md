@@ -87,9 +87,10 @@ sbx-go-sdk/
 ├── client/               # Client (connection + daemon lifecycle); New(); DefaultClient; options
 ├── sandbox/              # core resource: Create + Sandbox object; lifecycle/feature files
 ├── exec/                 # ProcessOption, ExecResult, AttachSession (shared exec types)
-├── secret/               # secrets / sandbox credentials
-├── policy/               # network egress policy
-└── template/             # save / load / ls / rm templates
+├── cp/                   # cp.Option (WithFollowSymlinks) for file copy
+├── secret/               # secrets (minimal; shell-out; experimental upstream)
+├── policy/               # network egress policy (REST)
+└── template/             # template = image: list/remove/load (REST), save (shell-out)
 ```
 
 **Layering.** `internal/api` is the low-level typed REST client (our equivalent of the moby client
@@ -137,13 +138,16 @@ daemon api 0.10.0; a contract test warns on drift.
 | `DaemonHealth(ctx)` | `GET /daemon/health` | api_version, revision, release |
 | `LogLevels(ctx)` | `GET /daemon/loglevel` | `{general, proxy}` |
 | `SetLogLevel(ctx, category, level)` | `POST /daemon/loglevel/set` | category: proxy/general/all |
-| `EnsureRunning(ctx)` | locate socket + `Health`; spawn if down | idempotent |
-| `StartDaemon(ctx, opts)` | `exec.Command("sbx","daemon","start","--detach",…)` | `--policy` passthrough |
-| `StopDaemon(ctx)` | `sbx daemon stop` (or signal) | |
+| `Diagnostics(ctx)` | `GET /daemon/diagnostics` | daemon self-check |
+| `EnsureRunning(ctx)` | locate socket + `Health`; **shell-out** spawn if down | idempotent |
+| `StartDaemon(ctx, opts)` | **shell-out** `sbx daemon start --detach …` | `--policy` passthrough |
+| `StopDaemon(ctx)` | REST `POST /daemon/shutdown` (`ShutdownDaemon`) | |
+| `Reset(ctx)` | REST `POST /daemon/reset` (`ResetDaemon`) | |
 | `DaemonStatus(ctx)` | socket probe + health | returns running + paths |
 
-`StartDaemon` shells out to the `sbx` binary (resolved from PATH or `WithBinaryPath`). The SDK does
-**not** re-exec arbitrary binaries beyond this documented call.
+Only `EnsureRunning`/`StartDaemon` shell out (you can't start a process via REST); stop/reset are
+REST. The `sbx` binary is resolved from PATH or `WithBinaryPath`. The SDK does **not** re-exec
+arbitrary binaries beyond the documented `sbx` calls.
 
 ---
 
@@ -151,8 +155,11 @@ daemon api 0.10.0; a contract test warns on drift.
 
 Verb model (domain-faithful to sbx; see `CONTEXT.md`):
 - `sandbox.Create(ctx, …)` → **provision without attaching** (sbx `create`). **Shell-out** (ADR-0001).
-- `sb.Run(ctx, …)` → **launch + interactively attach the agent** (sbx `run`); returns an
-  `*exec.AttachSession`. Create-if-missing semantics like the CLI. **Shell-out** (interactive).
+- `sb.Run(ctx, opts…) (int, error)` → **launch + interactively attach the agent** (sbx `run`),
+  create-if-missing. **Shell-out**; stdio inherits the caller's terminal by default
+  (`sandbox.WithStdio(in,out,err)` to override), blocks until the agent exits, returns its exit
+  code. It does **not** return an `AttachSession` — that mold fits only the hijack-backed
+  `ExecInteractive`, not a PTY/child-process session (Q8).
 - `sb.Start(ctx)` / `sb.Stop(ctx)` → sandbox VM lifecycle (REST). `sb.Exec(…)` → arbitrary command.
 - There is **no** `sandbox.Run = create+start`. Don't reintroduce docker/go-sdk's meaning.
 
@@ -176,7 +183,7 @@ defer sb.Remove(ctx)
 | API | Transport |
 |---|---|
 | `sandbox.Create(ctx, opts…)` | **shell-out** `sbx create …` |
-| `sb.Run(ctx, opts…)` → AttachSession | **shell-out** `sbx run …` (hijack stdio) |
+| `sb.Run(ctx, opts…) (int, error)` | **shell-out** `sbx run …` (inherit terminal stdio) |
 | `sandbox.List(ctx)` | REST `GET /sandbox` |
 | `sandbox.Get(ctx, name)` | REST `GET /sandbox/{name}` |
 | `sb.Start(ctx)` | REST `POST /sandbox/{name}/start` |
@@ -250,21 +257,60 @@ reading `apiHandler.AttachExec` / `bridgeAttachStreams` in DWARF.
 
 ---
 
-## 8. `secret`, `policy`, `template`, files, ports
+## 8. files/cp, ports, `template`, `policy`, `secret`
 
-| API | Route(s) |
-|---|---|
-| `sb.CopyTo(ctx, localPath, sandboxPath)` | `PUT /sandbox/{name}/files` (tar stream) |
-| `sb.CopyFrom(ctx, sandboxPath, localPath)` | `GET /sandbox/{name}/files` (tar stream) |
-| `sb.Ports(ctx)` | `GET /sandbox/{name}/ports` |
-| `sb.PublishPort(ctx, spec)` | `POST /sandbox/{name}/ports` |
-| `sb.SetCredentials(ctx, creds)` / `secret.Set/List/Remove` | `POST /sandbox/{name}/credentials` + global secret store |
-| `policy.AllowNetwork/DenyNetwork/Reset/List/SetDefault` | network policy (routes TBD) |
-| `template.Save/Load/List/Remove` | `POST /sandbox/{name}/save` + template store |
+Authoritative transport map (from the daemon's full `apiHandler` method set + REST client builders):
+**shell-out** only for `Create`, agent `Run`, `template save` (`SaveSandbox`), daemon `start`.
+**Everything else is REST.**
 
-**OPEN QUESTION (O2) — secret/policy/template routes.** Not all appeared as top-level REST paths in
-probing. Trace each from the CLI during implementation; mark any that require the engine `docker.sock`
-layer, and either implement or explicitly defer those to a later version.
+### 8.1 files / cp (REST; custom-coded, no client builder)
+`GetFile`/`PutFile` handlers stream **tar archives** (`docker cp` semantics: `SANDBOX:PATH` ↔ local
+only, directory placed at destination). Path helpers over a tar core (Q10):
+```go
+func (sb *Sandbox) CopyTo(ctx, localPath, sandboxPath string, opts ...cp.Option) error  // cp.WithFollowSymlinks()
+func (sb *Sandbox) CopyFrom(ctx, sandboxPath, localPath string, opts ...cp.Option) error
+func (sb *Sandbox) CopyTarTo(ctx, sandboxPath string, tar io.Reader) error               // lower-level core
+func (sb *Sandbox) CopyTarFrom(ctx, sandboxPath string) (io.ReadCloser, error)
+```
+
+### 8.2 ports (REST)
+`sb.Ports(ctx)` → `ListPublishedPorts`; `sb.PublishPort(ctx, spec)` → `PublishPorts`;
+`sb.UnpublishPort(ctx, spec)` → `UnpublishPorts`.
+
+### 8.3 template (REST + one shell-out) — templates ARE images
+`sbx template ls` lists all template images (base + saved); has `--json`. Domain-faithful `template`
+package over the image endpoints:
+```go
+template.List(ctx)              // ListImages  (fields: Repository, Tag, ImageID, Flavor, Created)
+template.Remove(ctx, ref)       // RemoveImage
+template.Load(ctx, file)        // LoadImage
+sb.SaveTemplate(ctx, tag)       // SHELL-OUT `sbx template save` (SaveSandbox; no client builder)
+```
+No separate `image` package in v1 (raw image mgmt deferred).
+
+### 8.4 policy (REST; full v1 — Q13)
+Network egress rules, global or per-sandbox scope:
+```go
+policy.List(ctx, scope)                          // ListNetworkPolicyRules
+policy.Allow(ctx, scope, resources...) / Deny    // ModifyNetworkPolicyRules
+policy.RemoveRule(ctx, scope, resources...)      // ModifyNetworkPolicyRules
+policy.SetDefault(ctx, "allow-all"|"balanced"|"deny-all")  // ApplyNetworkPolicySetup
+policy.Profiles(ctx)                             // PolicyProfilesList
+policy.Log(ctx, scope)                           // GetNetworkLog
+```
+`scope` = global or a sandbox name.
+
+### 8.5 secret (minimal + deferred — Q12)
+Built-in service login is interactive (OAuth) and `set-custom` is experimental; for headless creds,
+**prefer `exec.WithEnv`**. v1 ships a thin `secret` package shelling out to `sbx secret`:
+```go
+secret.SetCustom(ctx, opts)   // SHELL-OUT `sbx secret set-custom` (placeholder/proxy; EXPERIMENTAL upstream)
+secret.List(ctx, scope)       // SHELL-OUT `sbx secret ls`
+secret.Remove(ctx, scope, service)  // SHELL-OUT `sbx secret rm`
+```
+**Deferred:** interactive built-in-service OAuth (`secret set SERVICE`), registry credentials,
+and the `SyncCredentials`/per-sandbox `POST /credentials` REST path (revisit if env injection proves
+insufficient).
 
 ---
 
@@ -272,10 +318,20 @@ layer, and either implement or explicitly defer those to a later version.
 
 - **Schemas:** extracted from DWARF (exact field names, types, json tags), validated against live JSON.
   No guessed structs. A generation/extraction note is kept alongside the structs for future re-sync.
-- **Errors:** typed sentinels (`ErrSandboxNotFound`, `ErrExecNotFound`, `ErrIncompatibleVersion`),
-  wrapping a structured `APIError{Status int, Message string}` parsed from `{"message": …}` bodies.
-- **Context:** every network method takes `context.Context`; cancellation closes hijacked conns.
-- **Concurrency:** `Client` is safe for concurrent use (stateless over a shared `http.Client`).
+- **Errors (Q11):** two typed errors — `APIError{Op string; Status int; Message string}` (REST,
+  parsed from `{"message": …}`) and `CLIError{Args []string; ExitCode int; Stderr string}`
+  (shell-out) — plus curated sentinels (`ErrSandboxNotFound`, `ErrSandboxNotRunning`,
+  `ErrExecNotFound`, `ErrIncompatibleVersion`, `ErrDaemonNotRunning`, `ErrBinaryNotFound`),
+  `errors.Is`/`As`-friendly. REST status/messages map to sentinels; **no fragile stderr→sentinel
+  parsing** (expose `CLIError` raw).
+- **Context (E2):** every method takes `context.Context`. REST → cancels the HTTP request;
+  shell-out → SIGTERM then SIGKILL to the `sbx` child; `ExecInteractive` → closes the hijacked conn.
+- **Workspace paths (E1):** `WithWorkspace` resolved to absolute (caller CWD) before shell-out;
+  `:ro` preserved; writable host paths validated.
+- **Handle staleness (E3):** `Sandbox` = name + lazily-cached metadata; removed out-of-band →
+  next REST call returns `ErrSandboxNotFound`; `Inspect` refreshes; no background polling.
+- **Concurrency (E4):** `client.DefaultClient` is a lazy singleton; `Client` is concurrency-safe;
+  resource funcs default to it unless `WithClient(cli)` is passed.
 - **Logging:** pluggable `slog.Logger`; off by default.
 
 ---
@@ -292,19 +348,25 @@ layer, and either implement or explicitly defer those to a later version.
 
 ## 11. Open questions
 
-Resolved by the grilling session (2026-06-10):
-- **O1 — create:** RESOLVED. No REST `CreateSandbox` client; `Create`/`Run`/`SaveTemplate` shell out
-  to `sbx` (ADR-0001). Remaining impl detail: flag mapping + parsing `sbx create` output.
-- **Verb model, automation model, exec shape, auto-start, version policy, identity:** resolved — see
-  §6–7, `CONTEXT.md`, ADR-0001.
+Resolved by the grilling sessions (2026-06-10):
+- **O1 — create:** no REST `CreateSandbox` client; `Create`/`Run`/`SaveTemplate` shell out (ADR-0001).
+- **O2 — transport map:** RESOLVED at design level. Shell-out only for `Create`, `Run`, `template
+  save`, daemon `start`; **policy, cp, ports, template list/remove/load, daemon stop/reset are REST**.
+  Exact image/policy **route path strings** still need extraction from `RegisterHandlersWithBaseURL`.
+- **Verb model, automation model, exec shape, auto-start, version policy, identity, Run shape,
+  cp shape, error taxonomy, secret scope, policy scope:** resolved — see §5–9, `CONTEXT.md`, ADR-0001.
 
 Still open (resolve during first implementation slices):
-1. **O2 — routes:** exact secret/policy/template endpoints; which are REST vs shell-out vs engine layer.
+1. **Route-path extraction:** image and network-policy route path literals (OPTIONS-probing 404'd;
+   disassemble `sandboxapi.RegisterHandlersWithBaseURL` to resolve them).
 2. **O3 — attach:** `Upgrade` handshake, content-types, half-close (for `ExecInteractive`).
 3. **Shell-out output parsing:** stable way to get the new sandbox name/id from `sbx create`
-   (prefer a `--quiet`/machine-readable mode if one exists; else parse + `Get` to confirm).
-4. Module path confirmation before `go mod init` (default `github.com/mwchua/sbx-go-sdk`).
-5. Env var name for socket override (verify against `sandboxlib`).
+   (check for a `--json`/`--quiet` machine-readable mode; else parse + `Get` to confirm). `template
+   ls` confirmed to support `--json`.
+4. **`SessionHold` semantics:** does an attached agent session need an explicit keep-alive? (handler
+   exists; confirm whether `Run`/`ExecInteractive` must call it).
+5. Module path confirmation before `go mod init` (default `github.com/mwchua/sbx-go-sdk`).
+6. Env var name for socket override (verify against `sandboxlib`).
 
 ---
 
