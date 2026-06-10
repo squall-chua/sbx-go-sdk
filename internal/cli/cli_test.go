@@ -42,3 +42,11 @@ func TestNewRunner_MissingBinary(t *testing.T) {
 	_, err := NewRunner("/no/such/sbx")
 	require.ErrorIs(t, err, ErrBinaryNotFound)
 }
+
+func TestRunner_Inherit_ReturnsExitCode(t *testing.T) {
+	bin := fakeSbx(t, `exit 7`)
+	r, _ := NewRunner(bin)
+	code, err := r.Inherit(context.Background(), Stdio{}, nil, "run", "shell")
+	require.NoError(t, err) // non-zero exit is reported via code, not err
+	require.Equal(t, 7, code)
+}

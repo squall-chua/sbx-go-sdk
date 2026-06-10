@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 )
@@ -64,4 +65,39 @@ func (r *Runner) Capture(ctx context.Context, extraEnv []string, args ...string)
 		return out.String(), &Error{Args: args, ExitCode: -1, Stderr: err.Error()}
 	}
 	return out.String(), nil
+}
+
+// Stdio overrides the child's stdio; zero values inherit os.Stdin/out/err.
+type Stdio struct {
+	In  io.Reader
+	Out io.Writer
+	Err io.Writer
+}
+
+// Inherit runs `sbx args...` wired to the given (or inherited) terminal stdio and
+// returns the child's exit code. A non-zero exit is returned as (code, nil); only
+// failures to start/wait are returned as a non-nil error.
+func (r *Runner) Inherit(ctx context.Context, s Stdio, extraEnv []string, args ...string) (int, error) {
+	cmd := exec.CommandContext(ctx, r.bin, args...)
+	cmd.Env = append(os.Environ(), extraEnv...)
+	cmd.Stdin = orDefault[io.Reader](s.In, os.Stdin)
+	cmd.Stdout = orDefault[io.Writer](s.Out, os.Stdout)
+	cmd.Stderr = orDefault[io.Writer](s.Err, os.Stderr)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return ee.ExitCode(), nil
+		}
+		return -1, err
+	}
+	return 0, nil
+}
+
+func orDefault[T comparable](v, def T) T {
+	var zero T
+	if v == zero {
+		return def
+	}
+	return v
 }
