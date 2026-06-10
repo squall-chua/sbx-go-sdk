@@ -27,7 +27,8 @@ Full notes in [`REVERSE_ENGINEERING.md`](../../../REVERSE_ENGINEERING.md).
   (observed: `~/.local/state/sandboxes/sandboxes/sandboxd/sandboxd.sock`).
 - Short-symlink fallback under `~/.sbx/run/` to avoid the 108-byte unix path limit
   (`ErrSocketPathTooLong` / `ShortStateDirSymlink`).
-- Override precedence: `WithSocketPath` option > env override (`SBX_SOCKET`-style, exact name TBD) > default.
+- Override precedence: `WithSocketPath` option > env var **`DOCKER_SANDBOXES_API`** (resolved from
+  `sandboxlib.SocketPath`'s `Getenv`) > default XDG path.
 
 ---
 
@@ -284,9 +285,15 @@ reading `apiHandler.AttachExec` / `bridgeAttachStreams` in DWARF.
 
 ## 8. files/cp, ports, `template`, `policy`, `secret`
 
-Authoritative transport map (from the daemon's full `apiHandler` method set + REST client builders):
-**shell-out** only for `Create`, agent `Run`, `template save` (`SaveSandbox`), daemon `start`.
-**Everything else is REST.**
+Authoritative transport map (daemon `apiHandler` set + REST client builders + **live route tracing**):
+- **Shell-out:** `Create`, agent `Run`, `template save` (`SaveSandbox`), **all `policy` except Log**,
+  `secret`, daemon `start`.
+- **REST (live-confirmed paths):** sandbox `list`=`/sandbox`, `inspect/start/stop/remove`,
+  `exec`=`/sandbox/{name}/exec` (+`/exec/{id}/resize`), cp=`GET|PUT /sandbox/{name}/files`,
+  ports=`/sandbox/{name}/ports`, credentials=`POST /sandbox/{name}/credentials`,
+  templates/images=`/docker/images`,`/docker/images/inspect?name=`,`/docker/images/load`,
+  `/docker/images/remove`, `policy.Log`=`/network/log`, daemon
+  `health|info|loglevel|shutdown|reset|diagnostics`.
 
 ### 8.1 files / cp (REST; custom-coded, no client builder)
 `GetFile`/`PutFile` handlers stream **tar archives** (`docker cp` semantics: `SANDBOX:PATH` ↔ local
@@ -306,24 +313,29 @@ func (sb *Sandbox) CopyTarFrom(ctx, sandboxPath string) (io.ReadCloser, error)
 `sbx template ls` lists all template images (base + saved); has `--json`. Domain-faithful `template`
 package over the image endpoints:
 ```go
-template.List(ctx)              // ListImages  (fields: Repository, Tag, ImageID, Flavor, Created)
-template.Remove(ctx, ref)       // RemoveImage
-template.Load(ctx, file)        // LoadImage
+template.List(ctx)              // REST GET /docker/images        (fields: agent, created_at, id, …)
+template.Inspect(ctx, name)     // REST GET /docker/images/inspect?name=
+template.Remove(ctx, ref)       // REST DELETE /docker/images/remove
+template.Load(ctx, file)        // REST POST /docker/images/load
 sb.SaveTemplate(ctx, tag)       // SHELL-OUT `sbx template save` (SaveSandbox; no client builder)
 ```
 No separate `image` package in v1 (raw image mgmt deferred).
 
-### 8.4 policy (REST; full v1 — Q13)
-Network egress rules, global or per-sandbox scope:
+### 8.4 policy (SHELL-OUT — Q13 REVISED by live tracing)
+**Correction:** policy is **not** daemon-REST. Live tracing shows the CLI's `runPolicyLsCmd` calls
+`sandboxlib/runtime.(*DockerNext).ListPolicyRules` (an engine-layer client), and the REST route
+`/policy/network/rules` returns **501 "not implemented"** in v0.32.0. So policy rule management goes
+through the engine, not the daemon REST API — and the SDK uses **shell-out** (ADR-0001 principle),
+not REST:
 ```go
-policy.List(ctx, scope)                          // ListNetworkPolicyRules
-policy.Allow(ctx, scope, resources...) / Deny    // ModifyNetworkPolicyRules
-policy.RemoveRule(ctx, scope, resources...)      // ModifyNetworkPolicyRules
-policy.SetDefault(ctx, "allow-all"|"balanced"|"deny-all")  // ApplyNetworkPolicySetup
-policy.Profiles(ctx)                             // PolicyProfilesList
-policy.Log(ctx, scope)                           // GetNetworkLog
+policy.List(ctx, scope)                          // SHELL-OUT `sbx policy ls`
+policy.Allow(ctx, scope, resources...) / Deny    // SHELL-OUT `sbx policy allow|deny network`
+policy.RemoveRule(ctx, scope, resources...)      // SHELL-OUT `sbx policy rm network`
+policy.SetDefault(ctx, "allow-all"|"balanced"|"deny-all")  // SHELL-OUT `sbx policy set-default`
+policy.Profiles(ctx)                             // SHELL-OUT `sbx policy profile ls` (has --json)
+policy.Log(ctx, scope)                            // REST `GET /network/log` (200, the one working path)
 ```
-`scope` = global or a sandbox name.
+`scope` = global or a sandbox name. (`policy.Log` is the lone REST exception — `/network/log` works.)
 
 ### 8.5 secret (minimal + deferred — Q12)
 Built-in service login is interactive (OAuth) and `set-custom` is experimental; for headless creds,
@@ -398,17 +410,23 @@ Resolved by the grilling sessions (2026-06-10):
 - **Verb model, automation model, exec shape, auto-start, version policy, identity, Run shape,
   cp shape, error taxonomy, secret scope, policy scope:** resolved — see §5–9, `CONTEXT.md`, ADR-0001.
 
-Still open (resolve during first implementation slices):
-1. **Route-path extraction:** image and network-policy route path literals (OPTIONS-probing 404'd;
-   disassemble `sandboxapi.RegisterHandlersWithBaseURL` to resolve them).
-2. **O3 — attach:** `Upgrade` handshake, content-types, half-close (for `ExecInteractive`).
-3. **Shell-out output parsing:** stable way to get the new sandbox name/id from `sbx create`
-   (check for a `--json`/`--quiet` machine-readable mode; else parse + `Get` to confirm). `template
-   ls` confirmed to support `--json`.
-4. **`SessionHold` semantics:** does an attached agent session need an explicit keep-alive? (handler
-   exists; confirm whether `Run`/`ExecInteractive` must call it).
-5. Module path confirmation before `go mod init` (default `github.com/mwchua/sbx-go-sdk`).
-6. Env var name for socket override (verify against `sandboxlib`).
+Resolved by live tracing (2026-06-10):
+- **Route paths:** images `/docker/images*`, credentials `/sandbox/{name}/credentials`,
+  exec/start/stop/ports under `/sandbox/{name}/…` — all confirmed live.
+- **Policy transport:** NOT daemon-REST (`/policy/network/rules` is a 501 stub; CLI uses
+  `runtime.DockerNext`); SDK uses **shell-out** (§8.4, revises Q13).
+- **Socket env override:** `DOCKER_SANDBOXES_API`.
+
+Still open (resolve during the matching implementation slice):
+1. **O3 — attach handshake (the one real unknown):** `Upgrade` headers, content-type, stdin framing,
+   half-close. Requires capturing a **live attach against a running sandbox** — do it when the
+   transport layer exists (can't observe the wire without an exec session). `AttachExec` disasm was
+   inconclusive.
+2. **`SessionHold` semantics:** does an attached session need an explicit keep-alive? (confirm during
+   the attach slice.)
+3. **Policy 501 nuance:** confirm whether the REST policy stub is permanent or state-dependent (with a
+   live sandbox) — does not change the decision (shell-out), just documents the why.
+4. Module path confirmation before `go mod init` (default `github.com/mwchua/sbx-go-sdk`).
 
 ---
 
