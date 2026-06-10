@@ -48,7 +48,7 @@ func TestDaemonInfoAndLogLevels(t *testing.T) {
 	c, _ := New(context.Background(), WithSocketPath(sock))
 	info, err := c.Info(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "/d.sock", info.DockerSocket)
+	require.Equal(t, "/d.sock", *info.DockerSocket)
 	ll, err := c.LogLevels(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "info", ll.Proxy)
@@ -64,6 +64,39 @@ func TestStopAndReset(t *testing.T) {
 	require.NoError(t, c.StopDaemon(context.Background()))
 	require.NoError(t, c.Reset(context.Background()))
 	require.Equal(t, []string{"POST /daemon/shutdown", "POST /daemon/reset"}, paths)
+}
+
+func TestDaemonHealthAndDiagnostics(t *testing.T) {
+	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/daemon/health":
+			w.Write([]byte(`{"api_version":"0.10.0","release":false,"revision":"abc","status":"healthy","version":"v0.32.0"}`))
+		case "/daemon/diagnostics":
+			w.Write([]byte(`{"info":{"State":{"Sandboxes":{"Total":0}}}}`))
+		default:
+			t.Fatalf("unexpected %s", r.URL.Path)
+		}
+	}))
+	c, _ := New(context.Background(), WithSocketPath(sock))
+	dh, err := c.DaemonHealth(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "0.10.0", dh.APIVersion)
+	require.Equal(t, "healthy", dh.Status)
+
+	diag, err := c.Diagnostics(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, string(diag), "Sandboxes")
+}
+
+func TestDaemonStatus_Running(t *testing.T) {
+	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"status":"healthy"}`))
+	}))
+	c, _ := New(context.Background(), WithSocketPath(sock))
+	st, err := c.DaemonStatus(context.Background())
+	require.NoError(t, err)
+	require.True(t, st.Running)
+	require.Equal(t, sock, st.Socket)
 }
 
 func TestEnsureRunning_AlreadyHealthy(t *testing.T) {

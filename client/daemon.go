@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 )
@@ -47,8 +48,8 @@ func (c *Client) CheckVersion(ctx context.Context) (string, error) {
 
 // DaemonInfo is the /daemon/info response.
 type DaemonInfo struct {
-	APISocket    string `json:"api_socket"`
-	DockerSocket string `json:"docker_socket"`
+	APISocket    string  `json:"api_socket"`
+	DockerSocket *string `json:"docker_socket,omitempty"`
 }
 
 // Info returns the daemon's socket paths.
@@ -131,6 +132,50 @@ func (c *Client) StartDaemon(ctx context.Context, opts StartOptions) error {
 		return err
 	}
 	return nil
+}
+
+// DaemonHealthResponse is the /daemon/health response (richer than /health).
+type DaemonHealthResponse struct {
+	APIVersion string `json:"api_version"`
+	Release    bool   `json:"release"`
+	Revision   string `json:"revision"`
+	Status     string `json:"status"`
+	Version    string `json:"version"`
+}
+
+// DaemonHealth returns the daemon's detailed health (api version, revision, …).
+func (c *Client) DaemonHealth(ctx context.Context) (*DaemonHealthResponse, error) {
+	var h DaemonHealthResponse
+	if err := c.tr.DoJSON(ctx, http.MethodGet, "/daemon/health", nil, &h); err != nil {
+		return nil, mapHTTPError("daemon-health", err)
+	}
+	return &h, nil
+}
+
+// Diagnostics returns the daemon self-check report as raw JSON (a large nested
+// object under an "info" key); callers decode the fields they need.
+func (c *Client) Diagnostics(ctx context.Context) (json.RawMessage, error) {
+	var raw json.RawMessage
+	if err := c.tr.DoJSON(ctx, http.MethodGet, "/daemon/diagnostics", nil, &raw); err != nil {
+		return nil, mapHTTPError("diagnostics", err)
+	}
+	return raw, nil
+}
+
+// Status reports daemon liveness plus the socket it was probed on.
+type Status struct {
+	Running bool
+	Socket  string
+}
+
+// DaemonStatus probes the socket via Health and reports running + path. A down
+// daemon yields Running=false with a nil error (so callers can branch).
+func (c *Client) DaemonStatus(ctx context.Context) (Status, error) {
+	st := Status{Socket: c.tr.Socket()}
+	if _, err := c.Health(ctx); err == nil {
+		st.Running = true
+	}
+	return st, nil
 }
 
 func (c *Client) waitHealthy(ctx context.Context, d time.Duration) error {
