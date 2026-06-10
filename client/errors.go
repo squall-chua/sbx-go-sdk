@@ -34,9 +34,9 @@ func (e *APIError) Error() string {
 // CLIError re-exports a shell-out failure for callers (errors.As friendly).
 type CLIError = cli.Error
 
-// parseMessage extracts {"message":...} from a daemon error body, falling back to
+// ParseMessage extracts {"message":...} from a daemon error body, falling back to
 // the raw body.
-func parseMessage(body []byte) string {
+func ParseMessage(body []byte) string {
 	var m struct {
 		Message string `json:"message"`
 	}
@@ -57,7 +57,7 @@ func mapHTTPError(op string, err error) error {
 	if !errors.As(err, &se) {
 		return err
 	}
-	ae := &APIError{Op: op, Status: se.Status, Message: parseMessage(se.Body)}
+	ae := &APIError{Op: op, Status: se.Status, Message: ParseMessage(se.Body)}
 	switch se.Status {
 	case 404:
 		return errors.Join(ErrSandboxNotFound, ae)

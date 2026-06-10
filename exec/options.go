@@ -43,9 +43,9 @@ func WithPrivileged() ProcessOption { return func(c *processConfig) { c.privileg
 // WithTTY allocates a pseudo-TTY (raw stream, no stdcopy framing).
 func WithTTY() ProcessOption { return func(c *processConfig) { c.tty = true } }
 
-// WithAutoStart is reserved to transparently start a stopped sandbox before exec.
-// It is accepted but not yet wired in this release; start the sandbox explicitly
-// via sandbox.Start until then.
+// WithAutoStart transparently starts a stopped sandbox before exec. Without it,
+// Exec/ExecInteractive/ExecDetached return ErrSandboxNotRunning when the sandbox
+// is not running.
 func WithAutoStart() ProcessOption { return func(c *processConfig) { c.autoStart = true } }
 
 // WithMultiplexed routes the demultiplexed stdout and stderr streams to the given

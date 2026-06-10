@@ -22,7 +22,8 @@ type State struct {
 // Exec runs cmd to completion and returns (exitCode, output, error). The returned
 // reader carries the demultiplexed stdout stream; stderr is discarded unless
 // WithMultiplexed is used to route both streams to caller-supplied writers, in
-// which case the returned reader is empty. The sandbox must already be running.
+// which case the returned reader is empty. The sandbox must be running, or pass
+// WithAutoStart to start a stopped one (otherwise ErrSandboxNotRunning is returned).
 func Exec(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...ProcessOption) (int, io.Reader, error) {
 	cfg := parseConfig(opts...)
 	if err := ensureRunnable(ctx, sb, cfg); err != nil {
@@ -114,7 +115,8 @@ func inspectExec(ctx context.Context, sb *sandbox.Sandbox, execID string) (State
 func mapExecError(err error) error {
 	var se *transport.HTTPStatusError
 	if errors.As(err, &se) && se.Status == 404 {
-		return errors.Join(client.ErrExecNotFound, &client.APIError{Op: "inspect-exec", Status: 404, Message: "exec not found"})
+		ae := &client.APIError{Op: "inspect-exec", Status: 404, Message: client.ParseMessage(se.Body)}
+		return errors.Join(client.ErrExecNotFound, ae)
 	}
 	return client.MapError("inspect-exec", err)
 }
