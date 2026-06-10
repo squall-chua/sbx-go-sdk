@@ -242,6 +242,31 @@ one per return shape (explicit over option-driven return magic). All take shared
 one they return `ErrSandboxNotRunning`. Opt-in transparent start via `exec.WithAutoStart()` (or a
 client-level toggle) — no hidden VM boots by default.
 
+**Wire protocol (O3 — RESOLVED by live capture).** All exec paths use one endpoint,
+`POST /sandbox/{name}/exec/attach`, a Docker-style hijack:
+```
+POST /sandbox/{name}/exec/attach HTTP/1.1
+Connection: Upgrade
+Upgrade: tcp
+Content-Type: application/json
+{"cmd":[...], ...opts}                ← env/workdir/user/tty/privileged as JSON fields
+---
+HTTP/1.1 101 Switching Protocols
+Content-Type: application/vnd.docker.raw-stream
+Connection: Upgrade
+Upgrade: tcp
+Sandboxes-Exec-Id: <execID>           ← exec id returned in this response header
+<hijacked conn: stdin written up, stdout/stderr streamed down>
+```
+- **Framing:** non-TTY → Docker **stdcopy** 8-byte frames `[type,0,0,0,size_be32][payload]` (verified:
+  `\x01\x00\x00\x00\x00\x00\x00\x10hello…` = stdout, 16 bytes); TTY → raw passthrough.
+- **Exit code:** `GET /sandbox/{name}/exec/{execID}` (`InspectExec`) after the stream ends.
+- **Resize:** `POST /sandbox/{name}/exec/{execID}/resize`.
+- **Exec preamble (what the CLI does before attach; SDK replicates as needed):** sync credentials
+  (`POST /sandbox/{name}/credentials`) → `GET /policy/setup` → `POST /sandbox/{name}/start` (ensure
+  running) → **SessionHold** `GET /runtime/{name}/session` (chunked keep-alive, held for the session)
+  → `GET /sandbox/{name}` (inspect) → attach.
+
 ### 7.1 `Exec` — run to completion, capture
 ```go
 func (sb *Sandbox) Exec(ctx context.Context, cmd []string, opts ...exec.ProcessOption) (int, io.Reader, error)
@@ -249,11 +274,11 @@ func (sb *Sandbox) Exec(ctx context.Context, cmd []string, opts ...exec.ProcessO
 code, r, err := sb.Exec(ctx, []string{"claude", "-p", "summarise the repo"},
     exec.WithWorkdir("/work"), exec.WithEnv(map[string]string{"CI": "1"}))
 ```
-- `POST /sandbox/{name}/exec`; output is a **Docker multiplexed stdcopy stream**; the returned
-  `io.Reader` is that raw stream by default.
+- Uses `POST /sandbox/{name}/exec/attach` (no TTY); reads the stdcopy stream to completion; the
+  returned `io.Reader` is the raw stream by default.
 - `exec.WithMultiplexed(stdout, stderr io.Writer)` copies demuxed streams to the given writers
   (via `moby/moby/api/pkg/stdcopy`) before returning. Signature unchanged either way.
-- Exit code via `GET /sandbox/{name}/exec/{id}` (`InspectExec`).
+- Exit code via `GET /sandbox/{name}/exec/{execID}` (id from the `Sandboxes-Exec-Id` header).
 
 ### 7.2 `ExecInteractive` — bidirectional stream
 ```go
@@ -265,9 +290,10 @@ sess.Resize(ctx, 120, 40)   // POST /sandbox/{name}/exec/{id}/resize
 code, _ := sess.Wait(ctx)
 sess.Close()
 ```
-- `AttachSession` wraps the **hijacked connection**; TTY → raw passthrough, else stdcopy-demuxed.
-  `ctx` cancellation closes the conn. `sb.Run` (agent) is a shell-out wrapper that yields the same
-  `AttachSession` type.
+- `AttachSession` wraps the **hijacked connection** (same `/exec/attach` endpoint, with `tty:true`
+  in the JSON body); TTY → raw passthrough, else stdcopy-demuxed. `ctx` cancellation closes the conn.
+  `Resize` → `POST /sandbox/{name}/exec/{execID}/resize`; `Wait` → `GET …/exec/{execID}`. (Per Q8,
+  `sb.Run` does **not** return this type — it shells out and returns an exit code.)
 
 ### 7.3 `ExecDetached` — background + poll
 ```go
@@ -276,10 +302,6 @@ func (sb *Sandbox) InspectExec(ctx context.Context, execID string) (exec.State, 
 ```
 - Starts the command in the background (sbx `exec -d`), returns the exec id; poll `InspectExec`
   for running/exit state.
-
-**OPEN QUESTION (O3) — attach handshake.** Exact `Upgrade` header values, content-type
-(`application/vnd.docker.*`), and half-close behavior to be confirmed by tracing a live attach and
-reading `apiHandler.AttachExec` / `bridgeAttachStreams` in DWARF.
 
 ---
 
@@ -410,23 +432,23 @@ Resolved by the grilling sessions (2026-06-10):
 - **Verb model, automation model, exec shape, auto-start, version policy, identity, Run shape,
   cp shape, error taxonomy, secret scope, policy scope:** resolved — see §5–9, `CONTEXT.md`, ADR-0001.
 
-Resolved by live tracing (2026-06-10):
+Resolved by live tracing + live attach capture (2026-06-10):
 - **Route paths:** images `/docker/images*`, credentials `/sandbox/{name}/credentials`,
-  exec/start/stop/ports under `/sandbox/{name}/…` — all confirmed live.
+  exec/start/stop/ports under `/sandbox/{name}/…`, policy-status `/policy/setup`, session
+  `/runtime/{name}/session` — all confirmed live.
 - **Policy transport:** NOT daemon-REST (`/policy/network/rules` is a 501 stub; CLI uses
   `runtime.DockerNext`); SDK uses **shell-out** (§8.4, revises Q13).
 - **Socket env override:** `DOCKER_SANDBOXES_API`.
+- **O3 — attach handshake:** RESOLVED by live capture — `POST /sandbox/{name}/exec/attach`,
+  HTTP 101 Upgrade (`Upgrade: tcp`), `application/vnd.docker.raw-stream`, stdcopy 8-byte framing,
+  exec id in `Sandboxes-Exec-Id` header, exit via `GET …/exec/{id}` (§7).
+- **`SessionHold`:** `GET /runtime/{name}/session` (chunked keep-alive) — held during attach.
+- **Create auto-starts:** `sbx create` leaves the sandbox **running** (relevant to Q4 lifecycle).
 
-Still open (resolve during the matching implementation slice):
-1. **O3 — attach handshake (the one real unknown):** `Upgrade` headers, content-type, stdin framing,
-   half-close. Requires capturing a **live attach against a running sandbox** — do it when the
-   transport layer exists (can't observe the wire without an exec session). `AttachExec` disasm was
-   inconclusive.
-2. **`SessionHold` semantics:** does an attached session need an explicit keep-alive? (confirm during
-   the attach slice.)
-3. **Policy 501 nuance:** confirm whether the REST policy stub is permanent or state-dependent (with a
-   live sandbox) — does not change the decision (shell-out), just documents the why.
-4. Module path confirmation before `go mod init` (default `github.com/mwchua/sbx-go-sdk`).
+Still open (small; resolve in the matching slice):
+1. **TTY-mode framing detail:** confirm raw (un-multiplexed) stream + a live resize frame with `-t`
+   (the non-TTY path is fully captured; TTY is the Docker raw convention, just unverified here).
+2. Module path confirmation before `go mod init` (default `github.com/mwchua/sbx-go-sdk`).
 
 ---
 
