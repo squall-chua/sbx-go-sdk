@@ -63,6 +63,17 @@ func serveConn(conn net.Conn) {
 		body := `{"exit_code":0,"running":false}`
 		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
 			"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
+	case req.URL.Path == "/sandbox/s1/exec/missing":
+		conn.Write([]byte("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n" +
+			"Content-Length: 27\r\n\r\n{\"message\":\"exec not found\"}"))
+	case req.URL.Path == "/sandbox/s1":
+		body := `{"name":"s1","status":"SANDBOX_STATUS_RUNNING"}`
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+			"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
+	case req.URL.Path == "/sandbox/stopped":
+		body := `{"name":"stopped","status":"SANDBOX_STATUS_STOPPED"}`
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+			"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
 	}
 }
 
@@ -110,4 +121,18 @@ func TestExec_Multiplexed(t *testing.T) {
 	// With WithMultiplexed the returned reader is drained into the writers, so empty.
 	rest, _ := io.ReadAll(r)
 	require.Empty(t, rest)
+}
+
+func TestInspectExec_NotFoundMapsToErrExecNotFound(t *testing.T) {
+	c, _ := attachStub(t)
+	sb := sandbox.NewForTest(c, "s1")
+	_, err := InspectExec(context.Background(), sb, "missing")
+	require.ErrorIs(t, err, client.ErrExecNotFound)
+}
+
+func TestExec_StoppedSandboxWithoutAutoStart(t *testing.T) {
+	c, _ := attachStub(t)
+	sb := sandbox.NewForTest(c, "stopped")
+	_, _, err := Exec(context.Background(), sb, []string{"echo", "hi"})
+	require.ErrorIs(t, err, client.ErrSandboxNotRunning)
 }

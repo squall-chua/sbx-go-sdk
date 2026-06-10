@@ -24,6 +24,10 @@ type AttachSession struct {
 // ExecInteractive starts cmd with a hijacked stream and returns an AttachSession.
 // TTY mode yields a raw stream; otherwise stdout/stderr are stdcopy-demuxed (stdout here).
 func ExecInteractive(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...ProcessOption) (*AttachSession, error) {
+	cfg := parseConfig(opts...)
+	if err := ensureRunnable(ctx, sb, cfg); err != nil {
+		return nil, err
+	}
 	body := buildBody(cmd, opts...)
 	raw, err := json.Marshal(body)
 	if err != nil {

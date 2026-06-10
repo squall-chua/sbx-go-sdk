@@ -3,11 +3,13 @@ package exec
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/squall-chua/sbx-go-sdk/internal/stdcopy"
+	"github.com/squall-chua/sbx-go-sdk/internal/transport"
 	"github.com/squall-chua/sbx-go-sdk/sandbox"
 )
 
@@ -22,6 +24,10 @@ type State struct {
 // WithMultiplexed is used to route both streams to caller-supplied writers, in
 // which case the returned reader is empty. The sandbox must already be running.
 func Exec(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...ProcessOption) (int, io.Reader, error) {
+	cfg := parseConfig(opts...)
+	if err := ensureRunnable(ctx, sb, cfg); err != nil {
+		return 0, nil, err
+	}
 	body := buildBody(cmd, opts...)
 	body.TTY = false
 	raw, err := json.Marshal(body)
@@ -35,8 +41,6 @@ func Exec(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...Proces
 	}
 	defer conn.Close()
 	execID := hdr.Get("Sandboxes-Exec-Id")
-
-	cfg := parseConfig(opts...)
 	var out []byte
 	if cfg.muxOut != nil || cfg.muxErr != nil {
 		// Route demuxed streams straight to the caller's writers.
@@ -71,6 +75,23 @@ func parseConfig(opts ...ProcessOption) processConfig {
 	return c
 }
 
+// ensureRunnable enforces the exec precondition: the sandbox must be running. If
+// WithAutoStart is set it starts a stopped sandbox first; otherwise a stopped
+// sandbox yields ErrSandboxNotRunning.
+func ensureRunnable(ctx context.Context, sb *sandbox.Sandbox, cfg processConfig) error {
+	info, err := sb.Inspect(ctx)
+	if err != nil {
+		return err
+	}
+	if info.Status == sandbox.StatusRunning {
+		return nil
+	}
+	if !cfg.autoStart {
+		return client.ErrSandboxNotRunning
+	}
+	return sb.Start(ctx)
+}
+
 // orDiscard returns w, or an always-succeeding discard writer if w is nil.
 func orDiscard(w io.Writer) io.Writer {
 	if w == nil {
@@ -83,9 +104,19 @@ func inspectExec(ctx context.Context, sb *sandbox.Sandbox, execID string) (State
 	var st State
 	err := sb.Client().Transport().DoJSON(ctx, http.MethodGet, "/sandbox/"+sb.Name()+"/exec/"+execID, nil, &st)
 	if err != nil {
-		return State{}, client.MapError("inspect-exec", err)
+		return State{}, mapExecError(err)
 	}
 	return st, nil
+}
+
+// mapExecError maps a 404 from an exec endpoint to ErrExecNotFound; otherwise it
+// defers to the generic client error mapper.
+func mapExecError(err error) error {
+	var se *transport.HTTPStatusError
+	if errors.As(err, &se) && se.Status == 404 {
+		return errors.Join(client.ErrExecNotFound, &client.APIError{Op: "inspect-exec", Status: 404, Message: "exec not found"})
+	}
+	return client.MapError("inspect-exec", err)
 }
 
 // InspectExec returns the state of a previously-started exec.
@@ -96,6 +127,10 @@ func InspectExec(ctx context.Context, sb *sandbox.Sandbox, execID string) (State
 // ExecDetached starts cmd in the background and returns its exec id. Poll
 // InspectExec for completion. Uses the attach endpoint but does not stream output.
 func ExecDetached(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...ProcessOption) (string, error) {
+	cfg := parseConfig(opts...)
+	if err := ensureRunnable(ctx, sb, cfg); err != nil {
+		return "", err
+	}
 	body := buildBody(cmd, opts...)
 	raw, err := json.Marshal(body)
 	if err != nil {
