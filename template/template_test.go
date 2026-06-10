@@ -2,9 +2,11 @@ package template
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -45,4 +47,23 @@ func TestListAndInspect(t *testing.T) {
 	img, err := Inspect(context.Background(), c, "docker.io/docker/sandbox-templates:shell-docker")
 	require.NoError(t, err)
 	require.Equal(t, "sha256:0e27", img.ID)
+}
+
+func TestRemoveAndLoad(t *testing.T) {
+	var loadBody []byte
+	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/docker/images/remove":
+			require.Equal(t, "myimg:v1", r.URL.Query().Get("name"))
+			w.WriteHeader(200)
+		case r.Method == http.MethodPost && r.URL.Path == "/docker/images/load":
+			loadBody, _ = io.ReadAll(r.Body)
+			w.WriteHeader(200)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	require.NoError(t, Remove(context.Background(), c, "myimg:v1"))
+	require.NoError(t, Load(context.Background(), c, strings.NewReader("TARDATA")))
+	require.Equal(t, "TARDATA", string(loadBody))
 }

@@ -4,10 +4,12 @@ package template
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
+	"github.com/squall-chua/sbx-go-sdk/internal/transport"
 )
 
 // Image is a template image (base or saved). Listing returns the full set.
@@ -36,4 +38,42 @@ func Inspect(ctx context.Context, c *client.Client, ref string) (Image, error) {
 		return Image{}, client.MapError("template-inspect", err)
 	}
 	return img, nil
+}
+
+// httpStatus reads+closes resp and returns a transport.HTTPStatusError if the
+// status is non-2xx, else nil.
+func httpStatus(resp *http.Response) error {
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return &transport.HTTPStatusError{Status: resp.StatusCode, Body: body}
+	}
+	return nil
+}
+
+// Remove deletes a template image by ref (tag or id). REST DELETE
+// /docker/images/remove?name=<ref>.
+func Remove(ctx context.Context, c *client.Client, ref string) error {
+	path := "/docker/images/remove?name=" + url.QueryEscape(ref)
+	resp, err := c.Transport().Do(ctx, http.MethodDelete, path, nil, nil)
+	if err != nil {
+		return client.MapError("template-remove", err)
+	}
+	if err := httpStatus(resp); err != nil {
+		return client.MapError("template-remove", err)
+	}
+	return nil
+}
+
+// Load imports an image tar into the runtime image store (REST POST
+// /docker/images/load with the tar as the request body).
+func Load(ctx context.Context, c *client.Client, tar io.Reader) error {
+	resp, err := c.Transport().Do(ctx, http.MethodPost, "/docker/images/load", tar, nil)
+	if err != nil {
+		return client.MapError("template-load", err)
+	}
+	if err := httpStatus(resp); err != nil {
+		return client.MapError("template-load", err)
+	}
+	return nil
 }
