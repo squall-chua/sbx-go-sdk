@@ -78,7 +78,7 @@ Rejected alternatives:
 
 ## 4. Package layout
 
-Module path: `github.com/mwchua/sbx-go-sdk` (placeholder — confirm before `go mod init`).
+Module path: `github.com/squall-chua/sbx-go-sdk`.
 
 ```
 sbx-go-sdk/
@@ -448,7 +448,7 @@ Resolved by live tracing + live attach capture (2026-06-10):
 Still open (small; resolve in the matching slice):
 1. **TTY-mode framing detail:** confirm raw (un-multiplexed) stream + a live resize frame with `-t`
    (the non-TTY path is fully captured; TTY is the Docker raw convention, just unverified here).
-2. Module path confirmation before `go mod init` (default `github.com/mwchua/sbx-go-sdk`).
+2. Module path: `github.com/squall-chua/sbx-go-sdk` (confirmed).
 
 ---
 
