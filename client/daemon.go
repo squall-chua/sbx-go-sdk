@@ -174,6 +174,10 @@ func (c *Client) DaemonStatus(ctx context.Context) (Status, error) {
 	st := Status{Socket: c.tr.Socket()}
 	if _, err := c.Health(ctx); err == nil {
 		st.Running = true
+		return st, nil
+	}
+	if ctx.Err() != nil {
+		return st, ctx.Err()
 	}
 	return st, nil
 }

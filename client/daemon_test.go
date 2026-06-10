@@ -99,6 +99,17 @@ func TestDaemonStatus_Running(t *testing.T) {
 	require.Equal(t, sock, st.Socket)
 }
 
+func TestDaemonStatus_Down(t *testing.T) {
+	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	c, _ := New(context.Background(), WithSocketPath(sock))
+	st, err := c.DaemonStatus(context.Background())
+	require.NoError(t, err)
+	require.False(t, st.Running)
+	require.Equal(t, sock, st.Socket)
+}
+
 func TestEnsureRunning_AlreadyHealthy(t *testing.T) {
 	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"healthy"}`))
