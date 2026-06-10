@@ -26,6 +26,8 @@ func scopeArg(scope string) string {
 }
 
 // SetCustom creates/updates a custom secret in scope ("" = global). EXPERIMENTAL.
+// The Value is passed as a `sbx secret set-custom --value` CLI argument, so it is
+// briefly visible in host process listings.
 func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecret) error {
 	args := []string{"secret", "set-custom", scopeArg(scope), "--host", s.Host, "--env", s.Env, "--value", s.Value}
 	if s.Placeholder != "" {
