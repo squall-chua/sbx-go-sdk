@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"github.com/squall-chua/sbx-go-sdk/internal/transport"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMapHTTPError_NotFound(t *testing.T) {
