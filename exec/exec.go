@@ -17,9 +17,9 @@ type State struct {
 	Running  bool `json:"running"`
 }
 
-// Exec runs cmd to completion and returns (exitCode, combinedOutput, error). The
-// returned reader is the raw stdcopy stream by default; use WithMultiplexed to
-// split it. Requires a running sandbox unless WithAutoStart is set.
+// Exec runs cmd to completion and returns (exitCode, output, error). The returned
+// reader carries the demultiplexed stdout stream; stderr is discarded in this
+// release (splitting stdout/stderr is planned). The sandbox must already be running.
 func Exec(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...ProcessOption) (int, io.Reader, error) {
 	body := buildBody(cmd, opts...)
 	body.TTY = false

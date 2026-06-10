@@ -39,7 +39,9 @@ func WithPrivileged() ProcessOption { return func(c *processConfig) { c.privileg
 // WithTTY allocates a pseudo-TTY (raw stream, no stdcopy framing).
 func WithTTY() ProcessOption { return func(c *processConfig) { c.tty = true } }
 
-// WithAutoStart transparently starts a stopped sandbox before exec.
+// WithAutoStart is reserved to transparently start a stopped sandbox before exec.
+// It is accepted but not yet wired in this release; start the sandbox explicitly
+// via sandbox.Start until then.
 func WithAutoStart() ProcessOption { return func(c *processConfig) { c.autoStart = true } }
 
 // execBody is the JSON sent to POST /sandbox/{name}/exec/attach.
