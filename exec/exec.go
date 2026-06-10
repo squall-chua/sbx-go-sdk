@@ -35,20 +35,47 @@ func Exec(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...Proces
 	defer conn.Close()
 	execID := hdr.Get("Sandboxes-Exec-Id")
 
-	// Demux into an in-memory buffer (capture semantics).
-	pr, pw := io.Pipe()
-	go func() {
-		var sink discardCloser
-		_, derr := stdcopy.Demux(pw, &sink, conn)
-		pw.CloseWithError(derr)
-	}()
-	out, _ := io.ReadAll(pr)
+	cfg := parseConfig(opts...)
+	var out []byte
+	if cfg.muxOut != nil || cfg.muxErr != nil {
+		// Route demuxed streams straight to the caller's writers.
+		_, derr := stdcopy.Demux(orDiscard(cfg.muxOut), orDiscard(cfg.muxErr), conn)
+		if derr != nil {
+			return 0, byteReader(nil), client.MapError("exec", derr)
+		}
+	} else {
+		// Demux into an in-memory buffer (capture semantics).
+		pr, pw := io.Pipe()
+		go func() {
+			var sink discardCloser
+			_, derr := stdcopy.Demux(pw, &sink, conn)
+			pw.CloseWithError(derr)
+		}()
+		out, _ = io.ReadAll(pr)
+	}
 
 	st, err := inspectExec(ctx, sb, execID)
 	if err != nil {
 		return 0, byteReader(out), err
 	}
 	return st.ExitCode, byteReader(out), nil
+}
+
+// parseConfig applies opts to a processConfig to read back option values.
+func parseConfig(opts ...ProcessOption) processConfig {
+	var c processConfig
+	for _, o := range opts {
+		o(&c)
+	}
+	return c
+}
+
+// orDiscard returns w, or an always-succeeding discard writer if w is nil.
+func orDiscard(w io.Writer) io.Writer {
+	if w == nil {
+		return discardCloser{}
+	}
+	return w
 }
 
 func inspectExec(ctx context.Context, sb *sandbox.Sandbox, execID string) (State, error) {

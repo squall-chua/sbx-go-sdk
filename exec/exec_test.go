@@ -2,6 +2,7 @@ package exec
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"io"
@@ -57,6 +58,7 @@ func serveConn(conn net.Conn) {
 			"Content-Type: application/vnd.docker.raw-stream\r\n" +
 			"Sandboxes-Exec-Id: e1\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n"))
 		conn.Write(frame(1, "hello\n"))
+		conn.Write(frame(2, "err\n"))
 	case req.URL.Path == "/sandbox/s1/exec/e1":
 		body := `{"exit_code":0,"running":false}`
 		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
@@ -93,4 +95,19 @@ func TestInspectExec(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, st.ExitCode)
 	require.False(t, st.Running)
+}
+
+func TestExec_Multiplexed(t *testing.T) {
+	c, _ := attachStub(t)
+	sb := sandbox.NewForTest(c, "s1")
+	var outBuf, errBuf bytes.Buffer
+	code, r, err := Exec(context.Background(), sb, []string{"sh", "-c", "..."},
+		WithMultiplexed(&outBuf, &errBuf))
+	require.NoError(t, err)
+	require.Equal(t, 0, code)
+	require.Equal(t, "hello\n", outBuf.String())
+	require.Equal(t, "err\n", errBuf.String())
+	// With WithMultiplexed the returned reader is drained into the writers, so empty.
+	rest, _ := io.ReadAll(r)
+	require.Empty(t, rest)
 }
