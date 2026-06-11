@@ -27,7 +27,7 @@ func stubClient(t *testing.T, h http.Handler) *client.Client {
 func TestList(t *testing.T) {
 	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/sandbox", r.URL.Path)
-		w.Write([]byte(`[{"name":"a","agent":"claude","status":"SANDBOX_STATUS_RUNNING","workspace":"/w"}]`))
+		w.Write([]byte(`[{"name":"a","agent":"claude","status":"running","workspace":"/w"}]`))
 	}))
 	sbs, err := List(context.Background(), c)
 	require.NoError(t, err)

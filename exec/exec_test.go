@@ -67,11 +67,11 @@ func serveConn(conn net.Conn) {
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n" +
 			"Content-Length: 27\r\n\r\n{\"message\":\"exec not found\"}"))
 	case req.URL.Path == "/sandbox/s1":
-		body := `{"name":"s1","status":"SANDBOX_STATUS_RUNNING"}`
+		body := `{"name":"s1","status":"running"}`
 		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
 			"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
 	case req.URL.Path == "/sandbox/stopped":
-		body := `{"name":"stopped","status":"SANDBOX_STATUS_STOPPED"}`
+		body := `{"name":"stopped","status":"stopped"}`
 		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
 			"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
 	}

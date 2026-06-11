@@ -7,6 +7,11 @@ import (
 	"github.com/squall-chua/sbx-go-sdk/internal/transport"
 )
 
+// Runner drives the sbx binary for shell-out operations. It is an alias for the
+// generated internal type so external importers (which cannot import internal/cli)
+// can name the value returned by Client.Runner.
+type Runner = cli.Runner
+
 // Client talks to a local sandboxd daemon (REST over a unix socket) and drives
 // the sbx binary for orchestration-heavy operations.
 type Client struct {
@@ -68,7 +73,7 @@ func (c *Client) runnerOrErr() (*cli.Runner, error) {
 }
 
 // Runner resolves and returns the sbx-binary runner (for shell-out ops in sibling packages).
-func (c *Client) Runner() (*cli.Runner, error) { return c.runnerOrErr() }
+func (c *Client) Runner() (*Runner, error) { return c.runnerOrErr() }
 
 // DefaultClient is a lazily-initialized client over the default socket.
 // It is created on first use by callers that want zero-config access.

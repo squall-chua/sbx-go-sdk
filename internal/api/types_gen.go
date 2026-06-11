@@ -4,7 +4,7 @@
 // SandboxStatus and PublishedPort.Protocol are defined string types
 // (`type X string`) that carry no struct fields in DWARF, so dwarfgen emitted
 // them as empty structs. The daemon serializes them as JSON strings
-// (e.g. "SANDBOX_STATUS_RUNNING", "tcp"), so SandboxInfo.Status and
+// (e.g. "running", "tcp"), so SandboxInfo.Status and
 // PublishedPort.Protocol are typed `string` here and the empty enum structs
 // were removed. Re-running dwarfgen will reintroduce the empty structs;
 // re-apply these edits if you regenerate.
