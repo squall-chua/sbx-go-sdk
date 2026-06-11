@@ -53,8 +53,7 @@ func Exec(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...Proces
 		// Demux into an in-memory buffer (capture semantics).
 		pr, pw := io.Pipe()
 		go func() {
-			var sink discardCloser
-			_, derr := stdcopy.Demux(pw, &sink, conn)
+			_, derr := stdcopy.Demux(pw, io.Discard, conn)
 			pw.CloseWithError(derr)
 		}()
 		var rerr error
@@ -97,10 +96,10 @@ func ensureRunnable(ctx context.Context, sb *sandbox.Sandbox, cfg processConfig)
 	return sb.Start(ctx)
 }
 
-// orDiscard returns w, or an always-succeeding discard writer if w is nil.
+// orDiscard returns w, or io.Discard if w is nil.
 func orDiscard(w io.Writer) io.Writer {
 	if w == nil {
-		return discardCloser{}
+		return io.Discard
 	}
 	return w
 }
@@ -149,10 +148,6 @@ func ExecDetached(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts .
 	conn.Close() // don't consume the stream; the command keeps running
 	return hdr.Get("Sandboxes-Exec-Id"), nil
 }
-
-type discardCloser struct{}
-
-func (discardCloser) Write(p []byte) (int, error) { return len(p), nil }
 
 func byteReader(b []byte) io.Reader { return &bytesReader{b: b} }
 

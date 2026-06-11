@@ -18,6 +18,8 @@ type CustomSecret struct {
 }
 
 // scopeArg returns "-g" for global ("") or the sandbox name as a positional arg.
+// NOTE: `sbx secret` uses "-g"/bare positional; `sbx policy` uses "--sandbox NAME"
+// (see policy.scopeArgs). The encodings differ per CLI on purpose — do not unify.
 func scopeArg(scope string) string {
 	if scope == "" {
 		return "-g"
