@@ -57,7 +57,11 @@ func Exec(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opts ...Proces
 			_, derr := stdcopy.Demux(pw, &sink, conn)
 			pw.CloseWithError(derr)
 		}()
-		out, _ = io.ReadAll(pr)
+		var rerr error
+		out, rerr = io.ReadAll(pr)
+		if rerr != nil {
+			return 0, byteReader(out), client.MapError("exec", rerr)
+		}
 	}
 
 	st, err := inspectExec(ctx, sb, execID)

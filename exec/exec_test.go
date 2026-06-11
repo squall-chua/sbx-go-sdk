@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -44,6 +45,10 @@ func attachStub(t *testing.T) (*client.Client, string) {
 	return c, sock
 }
 
+// serveConn answers the exec protocol name-agnostically: exec sub-paths are matched
+// by suffix so any sandbox name works. The "badframe" sandbox attaches an invalid
+// stream frame (forces a demux error); "stopped" inspects as stopped (everything
+// else inspects as running).
 func serveConn(conn net.Conn) {
 	defer conn.Close()
 	br := bufio.NewReader(conn)
@@ -52,29 +57,36 @@ func serveConn(conn net.Conn) {
 		return
 	}
 	io.Copy(io.Discard, req.Body)
+	p := req.URL.Path
 	switch {
-	case req.URL.Path == "/sandbox/s1/exec/attach":
+	case strings.HasSuffix(p, "/exec/attach"):
 		conn.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n" +
 			"Content-Type: application/vnd.docker.raw-stream\r\n" +
 			"Sandboxes-Exec-Id: e1\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n"))
-		conn.Write(frame(1, "hello\n"))
-		conn.Write(frame(2, "err\n"))
-	case req.URL.Path == "/sandbox/s1/exec/e1":
-		body := `{"exit_code":0,"running":false}`
-		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
-			"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
-	case req.URL.Path == "/sandbox/s1/exec/missing":
+		if strings.HasPrefix(p, "/sandbox/badframe/") {
+			conn.Write(frame(9, "x")) // unknown stream type → stdcopy.Demux errors
+		} else {
+			conn.Write(frame(1, "hello\n"))
+			conn.Write(frame(2, "err\n"))
+		}
+	case strings.HasSuffix(p, "/exec/missing"):
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n" +
 			"Content-Length: 27\r\n\r\n{\"message\":\"exec not found\"}"))
-	case req.URL.Path == "/sandbox/s1":
-		body := `{"name":"s1","status":"running"}`
-		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
-			"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
-	case req.URL.Path == "/sandbox/stopped":
-		body := `{"name":"stopped","status":"stopped"}`
-		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
-			"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
+	case strings.HasSuffix(p, "/exec/e1"):
+		writeJSON(conn, `{"exit_code":0,"running":false}`)
+	case strings.HasSuffix(p, "/start"):
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"))
+	case p == "/sandbox/stopped":
+		writeJSON(conn, `{"name":"stopped","status":"stopped"}`)
+	case strings.HasPrefix(p, "/sandbox/"):
+		name := strings.TrimPrefix(p, "/sandbox/")
+		writeJSON(conn, `{"name":"`+name+`","status":"running"}`)
 	}
+}
+
+func writeJSON(conn net.Conn, body string) {
+	conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+		"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
 }
 
 func itoa(n int) string {
@@ -130,9 +142,27 @@ func TestInspectExec_NotFoundMapsToErrExecNotFound(t *testing.T) {
 	require.ErrorIs(t, err, client.ErrExecNotFound)
 }
 
+func TestExec_CapturePropagatesDemuxError(t *testing.T) {
+	c, _ := attachStub(t)
+	sb := sandbox.NewForTest(c, "badframe")
+	_, _, err := Exec(context.Background(), sb, []string{"echo", "hi"})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "stdcopy")
+}
+
 func TestExec_StoppedSandboxWithoutAutoStart(t *testing.T) {
 	c, _ := attachStub(t)
 	sb := sandbox.NewForTest(c, "stopped")
 	_, _, err := Exec(context.Background(), sb, []string{"echo", "hi"})
 	require.ErrorIs(t, err, client.ErrSandboxNotRunning)
+}
+
+func TestExec_AutoStart(t *testing.T) {
+	c, _ := attachStub(t)
+	sb := sandbox.NewForTest(c, "stopped")
+	code, r, err := Exec(context.Background(), sb, []string{"echo", "hi"}, WithAutoStart())
+	require.NoError(t, err)
+	out, _ := io.ReadAll(r)
+	require.Equal(t, "hello\n", string(out))
+	require.Equal(t, 0, code)
 }
