@@ -46,8 +46,7 @@ func ExecInteractive(ctx context.Context, sb *sandbox.Sandbox, cmd []string, opt
 			pw.CloseWithError(e)
 			return
 		}
-		var discard discardCloser
-		_, e := stdcopy.Demux(pw, &discard, conn)
+		_, e := stdcopy.Demux(pw, io.Discard, conn)
 		pw.CloseWithError(e)
 	}()
 	return s, nil

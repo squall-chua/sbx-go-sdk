@@ -11,6 +11,8 @@ import (
 )
 
 // scopeArgs appends "--sandbox NAME" when scope is non-empty (global otherwise).
+// NOTE: `sbx policy` uses "--sandbox NAME"; `sbx secret` uses "-g"/bare positional
+// (see secret.scopeArg). The encodings differ per CLI on purpose — do not unify.
 func scopeArgs(scope string) []string {
 	if scope == "" {
 		return nil
@@ -28,8 +30,8 @@ func run(ctx context.Context, c *client.Client, args ...string) error {
 }
 
 // SetDefault sets the baseline network policy: "allow-all", "balanced", or "deny-all".
-func SetDefault(ctx context.Context, c *client.Client, policy string) error {
-	return run(ctx, c, "policy", "set-default", policy)
+func SetDefault(ctx context.Context, c *client.Client, name string) error {
+	return run(ctx, c, "policy", "set-default", name)
 }
 
 // Allow adds an allow rule for the given hosts within scope ("" = global).
