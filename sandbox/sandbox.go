@@ -13,6 +13,11 @@ import (
 // StatusRunning is the daemon's running-status string.
 const StatusRunning = "SANDBOX_STATUS_RUNNING"
 
+// Info is the daemon's sandbox description returned by Inspect. It is an alias for
+// the generated internal type so external importers (which cannot import
+// internal/api) can name Inspect's return value.
+type Info = api.SandboxInfo
+
 // Sandbox is a handle to a single sandbox, addressed by name.
 type Sandbox struct {
 	cli  *client.Client
@@ -41,11 +46,11 @@ func (s *Sandbox) State() string { return statusString(s.info) }
 func (s *Sandbox) IsRunning() bool { return statusString(s.info) == StatusRunning }
 
 // Inspect refreshes and returns the sandbox info.
-func (s *Sandbox) Inspect(ctx context.Context) (api.SandboxInfo, error) {
-	var info api.SandboxInfo
+func (s *Sandbox) Inspect(ctx context.Context) (Info, error) {
+	var info Info
 	err := s.cli.Transport().DoJSON(ctx, http.MethodGet, "/sandbox/"+s.info.Name, nil, &info)
 	if err != nil {
-		return api.SandboxInfo{}, client.MapError("inspect", err)
+		return Info{}, client.MapError("inspect", err)
 	}
 	s.info = info
 	return info, nil
