@@ -34,7 +34,7 @@ func TestCreate_OwnsNameAndHydrates(t *testing.T) {
 		case "/sandbox": // List for collision check
 			w.Write([]byte(`[]`))
 		case "/sandbox/claude-myws":
-			w.Write([]byte(`{"name":"claude-myws","agent":"claude","status":"SANDBOX_STATUS_RUNNING"}`))
+			w.Write([]byte(`{"name":"claude-myws","agent":"claude","status":"running"}`))
 		default:
 			t.Fatalf("unexpected %s", r.URL.Path)
 		}

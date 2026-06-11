@@ -10,8 +10,9 @@ import (
 	"github.com/squall-chua/sbx-go-sdk/internal/api"
 )
 
-// StatusRunning is the daemon's running-status string.
-const StatusRunning = "SANDBOX_STATUS_RUNNING"
+// StatusRunning is the daemon's running-status string, as returned by the
+// /sandbox and /sandbox/{name} endpoints (verified live against sandboxd v0.32.0).
+const StatusRunning = "running"
 
 // Info is the daemon's sandbox description returned by Inspect. It is an alias for
 // the generated internal type so external importers (which cannot import
