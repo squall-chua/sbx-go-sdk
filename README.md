@@ -225,7 +225,7 @@ func main() {
 | --- | --- | --- |
 | `client` | `…/client` | Daemon connection, lifecycle (start/stop/status/health/version), options. |
 | `sandbox` | `…/sandbox` | Create, list, inspect, start/stop/remove, interactive `Run`, cp, ports, save-template. |
-| `exec` | `…/exec` | Run commands: capture, streaming, interactive attach (TTY + resize), detached. |
+| `exec` | `…/exec` | Run commands: capture, streaming, interactive attach (TTY + resize), detached, resource stats. |
 | `template` | `…/template` | List / inspect / remove / load template images. |
 | `policy` | `…/policy` | Network egress policy: defaults, allow/deny rules, profiles, proxy log. |
 | `secret` | `…/secret` | Stored proxy-injected secrets (experimental upstream). |
@@ -363,6 +363,24 @@ code, _ := sess.Wait(ctx)
 id, _ := exec.ExecDetached(ctx, sb, []string{"sh", "-c", "long-job"})
 state, _ := exec.InspectExec(ctx, sb, id) // State{ Running, ExitCode }
 ```
+
+**Resource stats** — a point-in-time CPU/memory/disk/uptime snapshot, read from
+`/proc` and `df` inside the sandbox (the same metrics the `sbx` TUI shows). There
+is no daemon stats endpoint; `Stats` simply execs a tiny probe, so the sandbox
+must be running (or pass `exec.WithAutoStart()`). It samples CPU over a ~200ms
+window, so the call blocks briefly.
+
+```go
+u, err := exec.Stats(ctx, sb)
+// exec.Usage{ Cores, MemTotalKB, MemAvailableKB, MemUsedKB, CPUPercent, UptimeSeconds, DiskTotalGB, DiskUsedGB }
+fmt.Printf("cpu %.1f%% / %d cores, mem %d/%d MiB, disk %.0f/%.0f GiB\n",
+	u.CPUPercent, u.Cores, u.MemUsedKB/1024, u.MemTotalKB/1024, u.DiskUsedGB, u.DiskTotalGB)
+```
+
+`CPUPercent` is the mean utilization across all cores, clamped to 0–100; memory
+is in KiB, disk (root filesystem) in GB. `UptimeSeconds` and the `Disk*` fields
+are best-effort — they read 0 if the sandbox can't supply them (e.g. a busybox
+`df` without `-BG`), without failing the CPU/memory snapshot.
 
 ### 6. Run an agent interactively
 
@@ -503,7 +521,7 @@ live daemon:
 | Example | Shows |
 | --- | --- |
 | [`examples/quickstart`](examples/quickstart) | Connect → create → exec → remove. |
-| [`examples/exec`](examples/exec) | Capture, env/workdir, streaming, detached + poll. |
+| [`examples/exec`](examples/exec) | Capture, env/workdir, streaming, detached + poll, resource stats. |
 | [`examples/run-agent`](examples/run-agent) | Interactive agent session over your terminal. |
 | [`examples/resources`](examples/resources) | Ports, file copy, templates, policy, secrets. |
 

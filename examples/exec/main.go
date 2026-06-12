@@ -1,5 +1,5 @@
-// Command exec demonstrates the three exec modes against one sandbox:
-// capture, live streaming, and detached-with-polling.
+// Command exec demonstrates the exec surface against one sandbox: capture, live
+// streaming, detached-with-polling, and a resource-usage snapshot.
 //
 //	go run ./examples/exec
 package main
@@ -75,4 +75,15 @@ func main() {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+
+	// 4. Stats: the same resource snapshot the sbx TUI shows (CPU, memory, disk,
+	// uptime), read from /proc and df. CPUPercent is sampled over a short window,
+	// so this call blocks briefly.
+	u, err := exec.Stats(ctx, sb)
+	if err != nil {
+		log.Fatalf("stats: %v", err)
+	}
+	fmt.Printf("--- stats ---\ncpu %.1f%% across %d cores, mem %d/%d MiB, disk %.0f/%.0f GiB, up %.0fs\n",
+		u.CPUPercent, u.Cores, u.MemUsedKB/1024, u.MemTotalKB/1024,
+		u.DiskUsedGB, u.DiskTotalGB, u.UptimeSeconds)
 }

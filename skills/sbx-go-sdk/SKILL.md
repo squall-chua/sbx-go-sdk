@@ -47,6 +47,7 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Stream stdout/stderr live | `exec.Exec(..., exec.WithMultiplexed(stdout, stderr))` |
 | Interactive shell / TTY | `exec.ExecInteractive(ctx, sb, cmd, exec.WithTTY())` → Stdin/Stdout/Resize/Wait |
 | Background command | `exec.ExecDetached(...)` → poll `exec.InspectExec(ctx, sb, id)` |
+| Resource stats (CPU/mem/disk) | `exec.Stats(ctx, sb)` → `exec.Usage{ Cores, MemTotalKB, MemAvailableKB, MemUsedKB, CPUPercent, UptimeSeconds, DiskTotalGB, DiskUsedGB }` |
 | Interactive agent | `sandbox.Run(ctx, c, ...)` / `sb.Run(ctx, sandbox.WithAgentArgs(...))` |
 | Copy files | `sb.CopyTo(ctx, local, sandboxPath)`, `sb.CopyFrom(ctx, sandboxPath, local)` |
 | Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)` |
@@ -62,6 +63,11 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
+- **No daemon metrics endpoint.** `exec.Stats` (like the `sbx` TUI) just execs a `/proc` + `df`
+  probe — so it needs a running VM and coreutils, and blocks ~200ms to sample CPU. It returns the
+  same metrics the TUI shows (CPU/mem/disk/uptime). `CPUPercent` is the mean across cores, clamped
+  0–100; `UptimeSeconds`/`Disk*` are best-effort (0 if df/uptime unavailable, e.g. busybox) and
+  never fail the core CPU/mem snapshot.
 - **`SaveTemplate` requires a stopped sandbox** — call `sb.Stop(ctx)` first, or it fails on a
   non-interactive stop prompt.
 - **`policy.List` / `policy.Profiles` / `secret.List` return raw text** (no `--json` upstream).

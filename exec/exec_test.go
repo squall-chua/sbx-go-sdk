@@ -60,15 +60,28 @@ func serveConn(conn net.Conn) {
 	p := req.URL.Path
 	switch {
 	case strings.HasSuffix(p, "/exec/attach"):
+		// "statsfail" gets exec id efail (inspects as exit 1); everything else e1.
+		execID := "e1"
+		if strings.HasPrefix(p, "/sandbox/statsfail/") {
+			execID = "efail"
+		}
 		conn.Write([]byte("HTTP/1.1 101 Switching Protocols\r\n" +
 			"Content-Type: application/vnd.docker.raw-stream\r\n" +
-			"Sandboxes-Exec-Id: e1\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n"))
-		if strings.HasPrefix(p, "/sandbox/badframe/") {
+			"Sandboxes-Exec-Id: " + execID + "\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n"))
+		switch {
+		case strings.HasPrefix(p, "/sandbox/badframe/"):
 			conn.Write(frame(9, "x")) // unknown stream type → stdcopy.Demux errors
-		} else {
+		case strings.HasPrefix(p, "/sandbox/statsbox/"):
+			conn.Write(frame(1, "8\n16384000\n8192000\n"+
+				"cpu  100 0 50 1000 0 0 0 0 0 0\n"+
+				"cpu  110 0 55 1040 0 0 0 0 0 0\n"+
+				"12345.67\n20G 5G\n"))
+		default:
 			conn.Write(frame(1, "hello\n"))
 			conn.Write(frame(2, "err\n"))
 		}
+	case strings.HasSuffix(p, "/exec/efail"):
+		writeJSON(conn, `{"exit_code":1,"running":false}`)
 	case strings.HasSuffix(p, "/exec/missing"):
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n" +
 			"Content-Length: 27\r\n\r\n{\"message\":\"exec not found\"}"))
