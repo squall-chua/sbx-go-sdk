@@ -1,5 +1,6 @@
 // Command exec demonstrates the exec surface against one sandbox: capture, live
-// streaming, detached-with-polling, and a resource-usage snapshot.
+// streaming, detached-with-polling, a resource-usage snapshot, and following a
+// log file.
 //
 //	go run ./examples/exec
 package main
@@ -86,4 +87,18 @@ func main() {
 	fmt.Printf("--- stats ---\ncpu %.1f%% across %d cores, mem %d/%d MiB, disk %.0f/%.0f GiB, up %.0fs\n",
 		u.CPUPercent, u.Cores, u.MemUsedKB/1024, u.MemTotalKB/1024,
 		u.DiskUsedGB, u.DiskTotalGB, u.UptimeSeconds)
+
+	// 5. Follow a log file (tail -F) like `docker logs -f`. The stream never ends
+	// on its own, so we read for a brief window and then Close to stop it.
+	if _, _, err := exec.Exec(ctx, sb,
+		[]string{"sh", "-c", "printf 'one\\ntwo\\n' > /tmp/demo.log"}); err != nil {
+		log.Fatalf("seed log: %v", err)
+	}
+	fmt.Println("--- following /tmp/demo.log ---")
+	logs, err := exec.Logs(ctx, sb, "/tmp/demo.log")
+	if err != nil {
+		log.Fatalf("logs: %v", err)
+	}
+	go func() { time.Sleep(500 * time.Millisecond); logs.Close() }()
+	io.Copy(os.Stdout, logs.Stdout())
 }

@@ -357,6 +357,18 @@ go io.Copy(os.Stdout, sess.Stdout())
 code, _ := sess.Wait(ctx)
 ```
 
+**Follow a log file** — `exec.Logs` is a convenience wrapper that runs `tail -F
+<path>` under an interactive attach and hands back the live session. Read
+`Stdout()` to stream new lines until you `Close()`; `-F` keeps following across log
+rotation and waits for a not-yet-created file. For a full replay or different
+flags, call `ExecInteractive` with your own command.
+
+```go
+sess, _ := exec.Logs(ctx, sb, "/var/log/app.log")
+defer sess.Close()
+io.Copy(os.Stdout, sess.Stdout()) // streams continuously
+```
+
 **Detached** — fire-and-forget; poll for completion:
 
 ```go
