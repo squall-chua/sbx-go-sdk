@@ -457,8 +457,9 @@ _ = policy.Deny(ctx, c, "review-bot", "evil.test")   // per-sandbox deny
 _ = policy.RemoveRule(ctx, c, "review-bot")
 _ = policy.Reset(ctx, c)
 
-txt, _ := policy.List(ctx, c, "")                    // raw text (no --json upstream)
-prof, _ := policy.Profiles(ctx, c)                   // raw text
+rules, _ := policy.List(ctx, c, "")                  // []policy.PolicyRule
+raw, _ := policy.ListRaw(ctx, c, "")                 // unparsed text escape hatch
+prof, _ := policy.Profiles(ctx, c)                   // raw text (no --json upstream)
 log, _ := policy.Log(ctx, c)                         // structured: allowed/blocked hosts
 for _, e := range log.BlockedHosts {
 	fmt.Println("blocked:", e.Host, e.VMName)
@@ -477,7 +478,8 @@ _ = secret.SetCustom(ctx, c, "", secret.CustomSecret{
 	Value: "sk-...",          // the real secret
 })
 
-txt, _ := secret.List(ctx, c, "")          // raw text
+secrets, _ := secret.List(ctx, c, "")      // *secret.Secrets{Stored, Custom}
+raw, _ := secret.ListRaw(ctx, c, "")       // unparsed text escape hatch
 _ = secret.Remove(ctx, c, "", "api.example.com")
 ```
 
@@ -598,8 +600,10 @@ contract test is what tells maintainers a re-sync is due.
 Verified live against `sandboxd` v0.32.0:
 
 - **`cp` is shell-out** — the daemon's `/files` GET is `501`.
-- **`policy` / `secret` list output is plain text** — no `--json` upstream; `List`/`Profiles`
-  return raw strings.
+- **`policy.List` / `secret.List` parse the CLI's table into typed values** — no `--json`
+  upstream, so the SDK parses the rendered table and returns `client.ErrUnexpectedFormat` if
+  its columns drift; use `policy.ListRaw` / `secret.ListRaw` for the unparsed text.
+  `policy.Profiles` is still raw text.
 - **`SaveTemplate` requires a stopped sandbox** — the daemon refuses to snapshot a running one,
   and the CLI would otherwise block on an interactive stop prompt.
 - **`UnpublishPort` shells out** — no confirmed REST unpublish path in v0.32.0.
