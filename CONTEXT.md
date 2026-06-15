@@ -54,3 +54,29 @@ _Avoid_: image, snapshot, base
 The local background process the SDK talks to over a unix socket. Same binary as the `sbx`
 CLI. Owns all sandboxes.
 _Avoid_: server, engine, service
+
+**Scope**:
+Whether a policy or secret is global or bound to a single sandbox. The SDK uses `""` for
+global; `sbx` spells the same idea `(global)` / `-g` / `--sandbox NAME` depending on the
+subcommand.
+_Avoid_: namespace, level, context
+
+**Secret**:
+A stored credential the daemon injects into sandboxes, listed (masked) by `sbx secret ls`.
+Two kinds: *service/registry* secrets (`sbx secret set`) and *custom* secrets (below).
+_Avoid_: credential, key, token
+
+**Custom Secret**:
+A proxy-injected secret that swaps a placeholder env var for the real value on outbound
+requests to a target host (`sbx secret set-custom`). EXPERIMENTAL upstream.
+_Avoid_: injected secret, env secret
+
+**Policy Rule**:
+A single network allow/deny entry shown by `sbx policy ls` — a provenance, scope, decision,
+and the host resources it covers.
+_Avoid_: rule, ACL, firewall rule
+
+**Provenance**:
+Where a policy rule comes from — `local` (set on this host) versus remote governance. Shown
+as the `PROVENANCE` column of `sbx policy ls`.
+_Avoid_: source, origin, owner
