@@ -70,8 +70,9 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   never fail the core CPU/mem snapshot.
 - **`SaveTemplate` requires a stopped sandbox** — call `sb.Stop(ctx)` first, or it fails on a
   non-interactive stop prompt.
-- **`policy.List` / `policy.Profiles` / `secret.List` return raw text** (no `--json` upstream).
-  `policy.Log` is the only structured policy reader.
+- **`policy.List` → `[]PolicyRule`, `secret.List` → `*Secrets`** by parsing the CLI table (no
+  `--json` upstream); drift returns `client.ErrUnexpectedFormat`. Use `policy.ListRaw` /
+  `secret.ListRaw` for raw text; `policy.Profiles` stays raw text.
 - **`secret.SetCustom` is experimental** and exposes the value in host process listings — for
   headless agent credentials prefer `exec.WithEnv`.
 - **`cp` and `UnpublishPort` shell out** (no daemon REST path) — they need the `sbx` binary.

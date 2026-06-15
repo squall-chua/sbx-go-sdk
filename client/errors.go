@@ -18,6 +18,7 @@ var (
 	ErrIncompatibleVersion = errors.New("incompatible sbx/daemon version")
 	ErrDaemonNotRunning    = errors.New("sandboxd not running")
 	ErrBinaryNotFound      = cli.ErrBinaryNotFound
+	ErrUnexpectedFormat    = errors.New("unexpected sbx output format")
 )
 
 // APIError is a structured non-2xx response from the daemon REST API.
