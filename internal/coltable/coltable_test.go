@@ -75,6 +75,18 @@ func TestParse_HeaderMismatchExtraColumn(t *testing.T) {
 	require.ErrorIs(t, err, ErrHeaderMismatch)
 }
 
+func TestParse_ShortRowMidColumnEmpty(t *testing.T) {
+	// A row that stops before the VALUE column's offset: NAME present, the rest empty.
+	raw := "NAME    VALUE   NOTE\n" +
+		"ab\n"
+	rows, err := Parse(raw, []string{"NAME", "VALUE", "NOTE"})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "ab", rows[0]["NAME"])
+	require.Equal(t, "", rows[0]["VALUE"])
+	require.Equal(t, "", rows[0]["NOTE"])
+}
+
 func TestParse_SingleColumnLabelIsNotHeader(t *testing.T) {
 	// A lone uppercase label like a section title must not be taken as a header.
 	rows, err := Parse("CUSTOM SECRETS\n", []string{"NAME", "VALUE"})

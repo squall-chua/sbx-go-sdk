@@ -20,12 +20,13 @@ var (
 	ErrHeaderMismatch = errors.New("coltable: header does not match expected columns")
 )
 
-// gutter matches the run of two or more spaces that separates table columns.
+// gutter matches the run of two or more whitespace characters that separates table columns.
 var gutter = regexp.MustCompile(`\s{2,}`)
 
 // Parse locates the first header-like row, validates it equals want (same columns,
 // same order), and returns each following non-blank line sliced into a map keyed by
 // the want column names. Every field is trimmed of surrounding whitespace.
+// want must contain distinct column names.
 func Parse(raw string, want []string) ([]map[string]string, error) {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	hi := -1
@@ -74,8 +75,7 @@ func isHeaderLike(ln string) bool {
 	return true
 }
 
-// splitCols splits a trimmed line on runs of two or more spaces, dropping empties.
-// Single spaces inside a column are preserved.
+// splitCols splits a line on runs of two or more spaces after trimming leading/trailing whitespace. Single spaces inside a column are preserved.
 func splitCols(ln string) []string {
 	ln = strings.TrimSpace(ln)
 	if ln == "" {
