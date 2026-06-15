@@ -90,3 +90,25 @@ func TestParseSecretList_Drift(t *testing.T) {
 	_, err := parseSecretList(raw)
 	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }
+
+func TestParseSecretList_StandardOnly(t *testing.T) {
+	// Standard table with no CUSTOM SECRETS section: exercises splitCustomSection's
+	// "no label -> all standard" branch and an empty Custom slice.
+	raw := "SCOPE       TYPE     NAME    SECRET\n" +
+		"my-sandbox  service  openai  testte**\n"
+	got, err := parseSecretList(raw)
+	require.NoError(t, err)
+	require.Len(t, got.Stored, 1)
+	require.Equal(t, "openai", got.Stored[0].Name)
+	require.Empty(t, got.Custom)
+}
+
+func TestParseSecretList_CustomDrift(t *testing.T) {
+	// Drift in the custom section (TARGET renamed to HOST) must also surface
+	// client.ErrUnexpectedFormat — the standard section is empty here.
+	raw := "CUSTOM SECRETS\n" +
+		"SCOPE     HOST      ENV      PLACEHOLDER  SECRET\n" +
+		"(global)  api.x.io  API_KEY  ph-123       sk-***\n"
+	_, err := parseSecretList(raw)
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
+}
