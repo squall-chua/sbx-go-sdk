@@ -33,7 +33,7 @@ func TestSecretOps(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, SetCustom(ctx, c, "", CustomSecret{Host: "api.example.com", Env: "API_KEY", Value: "sk-123"}))
-	txt, err := List(ctx, c, "")
+	txt, err := ListRaw(ctx, c, "")
 	require.NoError(t, err)
 	require.Contains(t, txt, "SECRET-TEXT")
 	require.NoError(t, Remove(ctx, c, "mysandbox", "openai"))
@@ -43,4 +43,50 @@ func TestSecretOps(t *testing.T) {
 	require.Contains(t, lines, "secret set-custom -g --host api.example.com --env API_KEY --value sk-123")
 	require.Contains(t, lines, "secret ls")
 	require.Contains(t, lines, "secret rm mysandbox openai -f")
+}
+
+func TestParseSecretList(t *testing.T) {
+	raw := "SCOPE       TYPE     NAME    SECRET\n" +
+		"my-sandbox  service  openai  testte**\n" +
+		"\n" +
+		"CUSTOM SECRETS\n" +
+		"SCOPE     TARGET    ENV      PLACEHOLDER  SECRET\n" +
+		"(global)  api.x.io  API_KEY  ph-123       sk-***\n"
+
+	got, err := parseSecretList(raw)
+	require.NoError(t, err)
+
+	require.Equal(t, []Stored{{
+		Scope: "my-sandbox", Type: "service", Name: "openai", ValueMasked: "testte**",
+	}}, got.Stored)
+
+	require.Equal(t, []Custom{{
+		Scope: "", Target: "api.x.io", Env: "API_KEY", Placeholder: "ph-123", ValueMasked: "sk-***",
+	}}, got.Custom)
+}
+
+func TestParseSecretList_Empty(t *testing.T) {
+	got, err := parseSecretList(`No secrets found for scope "zzz".` + "\n")
+	require.NoError(t, err)
+	require.Empty(t, got.Stored)
+	require.Empty(t, got.Custom)
+}
+
+func TestParseSecretList_CustomOnly(t *testing.T) {
+	raw := "CUSTOM SECRETS\n" +
+		"SCOPE     TARGET    ENV      PLACEHOLDER  SECRET\n" +
+		"(global)  api.x.io  API_KEY  ph-123       sk-***\n"
+
+	got, err := parseSecretList(raw)
+	require.NoError(t, err)
+	require.Empty(t, got.Stored)
+	require.Len(t, got.Custom, 1)
+	require.Equal(t, "api.x.io", got.Custom[0].Target)
+}
+
+func TestParseSecretList_Drift(t *testing.T) {
+	raw := "SCOPE       KIND     NAME    SECRET\n" +
+		"my-sandbox  service  openai  testte**\n"
+	_, err := parseSecretList(raw)
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }
