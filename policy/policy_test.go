@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -48,7 +49,7 @@ func TestPolicyMutations(t *testing.T) {
 func TestPolicyListProfilesAndLog(t *testing.T) {
 	// List/Profiles: capturing runner returns the fake sbx stdout.
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	// fake sbx prints a banner to stdout so List returns non-empty text.
+	// fake sbx prints a banner to stdout so ListRaw returns non-empty text.
 	sock := filepath.Join(t.TempDir(), "d.sock")
 	l, err := net.Listen("unix", sock)
 	require.NoError(t, err)
@@ -64,11 +65,16 @@ func TestPolicyListProfilesAndLog(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 
-	txt, err := List(ctx, c, "s1")
+	raw, err := ListRaw(ctx, c, "s1")
 	require.NoError(t, err)
-	require.Contains(t, txt, "POLICY-TEXT")
+	require.Contains(t, raw, "POLICY-TEXT")
 	data, _ := os.ReadFile(argFile)
 	require.Contains(t, string(data), "policy ls s1")
+
+	// "POLICY-TEXT" has no recognizable header → empty rule list, no error.
+	rules, err := List(ctx, c, "s1")
+	require.NoError(t, err)
+	require.Empty(t, rules)
 
 	prof, err := Profiles(ctx, c)
 	require.NoError(t, err)
@@ -78,4 +84,46 @@ func TestPolicyListProfilesAndLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, logs.AllowedHosts, 1)
 	require.Equal(t, "api.github.com:443", logs.AllowedHosts[0].Host)
+}
+
+func TestParsePolicyList(t *testing.T) {
+	hdr := "PROVENANCE  APPLIES_TO  POLICY/RULE  TYPE     DECISION  RESOURCES"
+	ri := strings.Index(hdr, "RESOURCES") // RESOURCES column offset (56)
+	raw := "Starting sandboxd daemon...\n" +
+		"Daemon started (PID: 17849, socket: /x/sandboxd.sock)\n" +
+		hdr + "\n" +
+		"local       all         default-ai   network  allow     a.example.com:443\n" +
+		strings.Repeat(" ", ri) + "b.example.com:443\n" +
+		"\n" +
+		"local       web         block-bad    network  deny      evil.example.com:443\n"
+
+	rules, err := parsePolicyList(raw)
+	require.NoError(t, err)
+	require.Len(t, rules, 2)
+
+	require.Equal(t, PolicyRule{
+		Provenance: "local",
+		AppliesTo:  "all",
+		Rule:       "default-ai",
+		Type:       "network",
+		Decision:   "allow",
+		Resources:  []string{"a.example.com:443", "b.example.com:443"},
+	}, rules[0])
+
+	require.Equal(t, "block-bad", rules[1].Rule)
+	require.Equal(t, "deny", rules[1].Decision)
+	require.Equal(t, []string{"evil.example.com:443"}, rules[1].Resources)
+}
+
+func TestParsePolicyList_Empty(t *testing.T) {
+	rules, err := parsePolicyList("No policies found.\n")
+	require.NoError(t, err)
+	require.Empty(t, rules)
+}
+
+func TestParsePolicyList_Drift(t *testing.T) {
+	raw := "PROVENANCE  APPLIES_TO  RULE  TYPE  DECISION  RESOURCES\n" +
+		"local       all         x     net   allow     a:443\n"
+	_, err := parsePolicyList(raw)
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }

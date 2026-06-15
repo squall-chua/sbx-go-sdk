@@ -5,9 +5,12 @@ package policy
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
+	"github.com/squall-chua/sbx-go-sdk/internal/coltable"
 )
 
 // scopeArgs appends "--sandbox NAME" when scope is non-empty (global otherwise).
@@ -66,14 +69,67 @@ func capture(ctx context.Context, c *client.Client, args ...string) (string, err
 	return r.Capture(ctx, nil, args...)
 }
 
-// List returns the raw `sbx policy ls [SCOPE]` text (no --json upstream). scope ""
-// lists global+all.
-func List(ctx context.Context, c *client.Client, scope string) (string, error) {
+// policyHeader is the column header of `sbx policy ls`, in order. Drift from this
+// set is reported as client.ErrUnexpectedFormat.
+var policyHeader = []string{"PROVENANCE", "APPLIES_TO", "POLICY/RULE", "TYPE", "DECISION", "RESOURCES"}
+
+// PolicyRule is one rule from `sbx policy ls`, modelling exactly its columns.
+type PolicyRule struct {
+	Provenance string   // "local", or a remote-governance source
+	AppliesTo  string   // "all" or a sandbox name
+	Rule       string   // POLICY/RULE — rule name, or ID when unnamed
+	Type       string   // "network"
+	Decision   string   // "allow" | "deny"
+	Resources  []string // hosts, gathered across continuation rows
+}
+
+// List returns the parsed `sbx policy ls [SCOPE]` rules. scope "" lists global+all.
+// A format change in the CLI's table yields client.ErrUnexpectedFormat — use
+// ListRaw to fall back to the unparsed text.
+func List(ctx context.Context, c *client.Client, scope string) ([]PolicyRule, error) {
+	raw, err := ListRaw(ctx, c, scope)
+	if err != nil {
+		return nil, err
+	}
+	return parsePolicyList(raw)
+}
+
+// ListRaw returns the raw `sbx policy ls [SCOPE]` text.
+func ListRaw(ctx context.Context, c *client.Client, scope string) (string, error) {
 	args := []string{"policy", "ls"}
 	if scope != "" {
 		args = append(args, scope)
 	}
 	return capture(ctx, c, args...)
+}
+
+// parsePolicyList maps the policy table to rules. A row with a non-blank PROVENANCE
+// starts a new rule; a continuation row (blank before RESOURCES) appends its host
+// to the current rule. A missing header means an empty listing (not an error).
+func parsePolicyList(raw string) ([]PolicyRule, error) {
+	rows, err := coltable.Parse(raw, policyHeader)
+	if errors.Is(err, coltable.ErrNoHeader) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("policy list: %w: %w", client.ErrUnexpectedFormat, err)
+	}
+	var out []PolicyRule
+	for _, r := range rows {
+		if r["PROVENANCE"] != "" {
+			out = append(out, PolicyRule{
+				Provenance: r["PROVENANCE"],
+				AppliesTo:  r["APPLIES_TO"],
+				Rule:       r["POLICY/RULE"],
+				Type:       r["TYPE"],
+				Decision:   r["DECISION"],
+			})
+		}
+		if res := r["RESOURCES"]; res != "" && len(out) > 0 {
+			out[len(out)-1].Resources = append(out[len(out)-1].Resources, res)
+		}
+	}
+	return out, nil
 }
 
 // Profiles returns the raw `sbx policy profile ls` text.
