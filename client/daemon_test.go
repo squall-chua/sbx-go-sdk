@@ -22,16 +22,40 @@ func TestHealth(t *testing.T) {
 	require.Equal(t, "v0.32.0 abc", h.Version)
 }
 
+// CheckVersion is now informational only (see daemon.go) — it still wraps the
+// dead /version endpoint, returning whatever the daemon reports verbatim.
 func TestCheckVersion(t *testing.T) {
 	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "/version", r.URL.Path)
-		w.Write([]byte(`{"result":"compatible"}`))
+		w.Write([]byte(`{"result":"incompatible"}`))
 	}))
 	c, _ := New(context.Background(), WithSocketPath(sock))
 	res, err := c.CheckVersion(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "compatible", res)
+	require.Equal(t, "incompatible", res)
+}
+
+// WithStrictVersion verifies compatibility via /daemon/health's api_version, NOT
+// the dead /version endpoint. Matching TestedAPIVersion accepts the daemon.
+func TestStrictVersion_Match(t *testing.T) {
+	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/daemon/health", r.URL.Path)
+		w.Write([]byte(`{"api_version":"` + TestedAPIVersion + `","status":"healthy","version":"v0.32.0"}`))
+	}))
+	c, err := New(context.Background(), WithSocketPath(sock), WithStrictVersion())
+	require.NoError(t, err)
+	require.NotNil(t, c)
+}
+
+// A drifted api_version fails New with ErrIncompatibleVersion.
+func TestStrictVersion_Mismatch(t *testing.T) {
+	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/daemon/health", r.URL.Path)
+		w.Write([]byte(`{"api_version":"9.9.9","status":"healthy","version":"v9.9.9"}`))
+	}))
+	_, err := New(context.Background(), WithSocketPath(sock), WithStrictVersion())
+	require.ErrorIs(t, err, ErrIncompatibleVersion)
 }
 
 func TestDaemonInfoAndLogLevels(t *testing.T) {

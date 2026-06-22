@@ -49,9 +49,11 @@ func Deny(ctx context.Context, c *client.Client, scope string, hosts ...string) 
 	return run(ctx, c, append(args, hosts...)...)
 }
 
-// RemoveRule removes the network rule(s) for scope ("" = global).
-func RemoveRule(ctx context.Context, c *client.Client, scope string) error {
+// RemoveRule removes the network rule for resource within scope ("" = global).
+// sbx requires a selector, so resource is mandatory.
+func RemoveRule(ctx context.Context, c *client.Client, scope, resource string) error {
 	args := append([]string{"policy", "rm", "network"}, scopeArgs(scope)...)
+	args = append(args, "--resource", resource)
 	return run(ctx, c, args...)
 }
 
