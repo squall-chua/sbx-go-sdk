@@ -35,14 +35,14 @@ func TestPolicyMutations(t *testing.T) {
 	require.NoError(t, SetDefault(ctx, c, "balanced"))
 	require.NoError(t, Allow(ctx, c, "", "example.com", "api.github.com"))
 	require.NoError(t, Deny(ctx, c, "mysandbox", "evil.example"))
-	require.NoError(t, RemoveRule(ctx, c, "mysandbox"))
+	require.NoError(t, RemoveRule(ctx, c, "mysandbox", "evil.example"))
 	require.NoError(t, Reset(ctx, c))
 	data, _ := os.ReadFile(argFile)
 	lines := string(data)
 	require.Contains(t, lines, "policy set-default balanced")
 	require.Contains(t, lines, "policy allow network example.com api.github.com")
 	require.Contains(t, lines, "policy deny network --sandbox mysandbox evil.example")
-	require.Contains(t, lines, "policy rm network --sandbox mysandbox")
+	require.Contains(t, lines, "policy rm network --sandbox mysandbox --resource evil.example")
 	require.Contains(t, lines, "policy reset")
 }
 

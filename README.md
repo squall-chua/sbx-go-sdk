@@ -466,7 +466,7 @@ Governs which hosts a sandbox may reach. Scope `""` is global; a sandbox name sc
 _ = policy.SetDefault(ctx, c, "balanced")            // "allow-all" | "balanced" | "deny-all"
 _ = policy.Allow(ctx, c, "", "api.github.com")       // global allow
 _ = policy.Deny(ctx, c, "review-bot", "evil.test")   // per-sandbox deny
-_ = policy.RemoveRule(ctx, c, "review-bot")
+_ = policy.RemoveRule(ctx, c, "review-bot", "evil.test")  // resource selector required
 _ = policy.Reset(ctx, c)
 
 rules, _ := policy.List(ctx, c, "")                  // []policy.PolicyRule
