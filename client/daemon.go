@@ -43,6 +43,10 @@ const TestedAPIVersion = "0.10.0"
 
 // CheckVersion asks the daemon whether this client is compatible.
 // Returns "compatible", "incompatible", or "unknown".
+//
+// Informational only: /version is dead on non-release daemons (it returns
+// "incompatible" for every string, including the daemon's own version), so the
+// strict-version check in New uses DaemonHealth().APIVersion instead.
 func (c *Client) CheckVersion(ctx context.Context) (string, error) {
 	var resp versionResponse
 	err := c.tr.DoJSON(ctx, http.MethodPost, "/version", versionRequest{Version: ClientVersion}, &resp)

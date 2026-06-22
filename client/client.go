@@ -42,11 +42,14 @@ func New(ctx context.Context, opts ...Option) (*Client, error) {
 		}
 	}
 	if cfg.strictVer {
-		res, err := c.CheckVersion(ctx)
+		// /version is dead on non-release daemons (returns "incompatible" for every
+		// string, including the daemon's own). Verify via /daemon/health's api_version
+		// instead — the same signal the real sbx CLI uses. See CheckVersion's note.
+		dh, err := c.DaemonHealth(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if res != "compatible" {
+		if dh.APIVersion != TestedAPIVersion {
 			return nil, ErrIncompatibleVersion
 		}
 	}
