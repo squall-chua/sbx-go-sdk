@@ -492,7 +492,8 @@ _ = secret.SetCustom(ctx, c, "", secret.CustomSecret{
 
 secrets, _ := secret.List(ctx, c, "")      // *secret.Secrets{Stored, Custom}
 raw, _ := secret.ListRaw(ctx, c, "")       // unparsed text escape hatch
-_ = secret.Remove(ctx, c, "", "api.example.com")
+_ = secret.Remove(ctx, c, "", "openai")              // a service/registry secret (positional name)
+_ = secret.RemoveCustom(ctx, c, "", "api.example.com") // a custom secret (keyed by host)
 ```
 
 > ⚠️ `SetCustom` passes the value as a CLI argument, so it is briefly visible in host process

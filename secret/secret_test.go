@@ -37,12 +37,16 @@ func TestSecretOps(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, txt, "SECRET-TEXT")
 	require.NoError(t, Remove(ctx, c, "mysandbox", "openai"))
+	require.NoError(t, RemoveCustom(ctx, c, "", "api.example.com"))
+	require.NoError(t, RemoveCustom(ctx, c, "my-sandbox", "api.example.com"))
 
 	data, _ := os.ReadFile(argFile)
 	lines := string(data)
 	require.Contains(t, lines, "secret set-custom -g --host api.example.com --env API_KEY --value sk-123")
 	require.Contains(t, lines, "secret ls")
 	require.Contains(t, lines, "secret rm mysandbox openai -f")
+	require.Contains(t, lines, "secret rm -g --host api.example.com -f")
+	require.Contains(t, lines, "secret rm my-sandbox --host api.example.com -f")
 }
 
 func TestParseSecretList(t *testing.T) {

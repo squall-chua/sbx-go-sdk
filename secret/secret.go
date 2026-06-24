@@ -173,3 +173,17 @@ func Remove(ctx context.Context, c *client.Client, scope, service string) error 
 	_, err = r.Capture(ctx, nil, args...)
 	return err
 }
+
+// RemoveCustom deletes the custom (set-custom) secret for a target host in scope
+// ("" = global). Custom secrets are keyed by host, so this uses `secret rm --host`
+// — not the positional service name Remove takes. Idempotent: the CLI exits 0 and
+// reports "Deleted 0" when nothing matches. (The --host flag is absent from
+// `sbx secret rm --help` but is supported.)
+func RemoveCustom(ctx context.Context, c *client.Client, scope, host string) error {
+	r, err := c.Runner()
+	if err != nil {
+		return err
+	}
+	_, err = r.Capture(ctx, nil, "secret", "rm", scopeArg(scope), "--host", host, "-f")
+	return err
+}
