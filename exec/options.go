@@ -59,7 +59,7 @@ func WithMultiplexed(stdout, stderr io.Writer) ProcessOption {
 type execBody struct {
 	Cmd        []string          `json:"cmd"`
 	Env        map[string]string `json:"env,omitempty"`
-	Workdir    string            `json:"workdir,omitempty"`
+	Workdir    string            `json:"working_dir,omitempty"` // daemon field is working_dir; "workdir" is silently ignored
 	User       string            `json:"user,omitempty"`
 	Privileged bool              `json:"privileged,omitempty"`
 	TTY        bool              `json:"tty,omitempty"`
