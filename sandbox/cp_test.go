@@ -35,9 +35,11 @@ func TestCopyToAndFrom(t *testing.T) {
 
 	require.NoError(t, sb.CopyTo(context.Background(), "/local/a.txt", "/home/user/a.txt", WithFollowSymlinks()))
 	require.NoError(t, sb.CopyFrom(context.Background(), "/home/user/out.log", "/local/out.log"))
+	require.NoError(t, sb.CopyFrom(context.Background(), "/home/user/link", "/local/link", WithFollowSymlinks()))
 
 	data, _ := os.ReadFile(argFile)
 	lines := string(data)
 	require.Contains(t, lines, "cp -L /local/a.txt s1:/home/user/a.txt")
 	require.Contains(t, lines, "cp s1:/home/user/out.log /local/out.log")
+	require.Contains(t, lines, "cp -L s1:/home/user/link /local/link")
 }

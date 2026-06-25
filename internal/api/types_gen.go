@@ -20,6 +20,8 @@ type SandboxInfo struct {
 	AdditionalWorkspaces *[]WorkspaceMount `json:"additional_workspaces,omitempty"`
 	Agent                *string           `json:"agent,omitempty"`
 	CreatedAt            *time.Time        `json:"created_at,omitempty"`
+	Id                   string            `json:"id"`
+	MountPolicyDenied    *bool             `json:"mount_policy_denied,omitempty"`
 	Name                 string            `json:"name"`
 	NetworkName          *string           `json:"network_name,omitempty"`
 	Ports                *[]PublishedPort  `json:"ports,omitempty"`

@@ -59,7 +59,7 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
 `WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`.
 
-## Gotchas (verified against sandboxd v0.32.0)
+## Gotchas (verified against sandboxd v0.33.0)
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
@@ -82,7 +82,7 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 - **`WithStrictVersion()` is unreliable on non-release daemons** — `POST /version` can report
   `"incompatible"` even for a version-matched daemon (`DaemonHealth.Release == false`). For a
   dependable check, compare `DaemonHealth.Version`/`APIVersion` to `client.ClientVersion` /
-  `client.TestedAPIVersion`. SDK is pinned to sbx v0.32.0 / api 0.10.0.
+  `client.TestedAPIVersion`. SDK is pinned to sbx v0.33.0 / api 0.12.0.
 
 ## Errors
 

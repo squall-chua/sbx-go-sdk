@@ -15,10 +15,11 @@ import (
 
 // CustomSecret describes a custom proxy-injected secret.
 type CustomSecret struct {
-	Host        string // target host whose outbound requests get the real secret
-	Env         string // env var set (to the placeholder) inside the sandbox
-	Value       string // the real secret
-	Placeholder string // optional; supports a {rand} suffix
+	Host        string   // target host whose outbound requests get the real secret (exact, IP, or wildcard e.g. "*.example.com")
+	Hosts       []string // additional target hosts covered by the same secret (repeatable --host, sbx v0.33.0)
+	Env         string   // env var set (to the placeholder) inside the sandbox
+	Value       string   // the real secret
+	Placeholder string   // optional; supports a {rand} suffix
 }
 
 // scopeArg returns "-g" for global ("") or the sandbox name as a positional arg.
@@ -35,7 +36,14 @@ func scopeArg(scope string) string {
 // The Value is passed as a `sbx secret set-custom --value` CLI argument, so it is
 // briefly visible in host process listings.
 func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecret) error {
-	args := []string{"secret", "set-custom", scopeArg(scope), "--host", s.Host, "--env", s.Env, "--value", s.Value}
+	args := []string{"secret", "set-custom", scopeArg(scope)}
+	if s.Host != "" {
+		args = append(args, "--host", s.Host)
+	}
+	for _, h := range s.Hosts {
+		args = append(args, "--host", h)
+	}
+	args = append(args, "--env", s.Env, "--value", s.Value)
 	if s.Placeholder != "" {
 		args = append(args, "--placeholder", s.Placeholder)
 	}
@@ -51,7 +59,7 @@ func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecr
 // client.ErrUnexpectedFormat.
 var (
 	secretStdHeader    = []string{"SCOPE", "TYPE", "NAME", "SECRET"}
-	secretCustomHeader = []string{"SCOPE", "TARGET", "ENV", "PLACEHOLDER", "SECRET"}
+	secretCustomHeader = []string{"SCOPE", "TARGETS", "ENV", "PLACEHOLDER", "SECRET"}
 )
 
 // Stored is a service or registry secret row (`sbx secret set`). Type is
@@ -66,7 +74,7 @@ type Stored struct {
 // Custom is a custom secret row (`sbx secret set-custom`).
 type Custom struct {
 	Scope       string // "" = global, else sandbox name
-	Target      string // target host
+	Targets     string // target host(s); comma-joined when one secret covers several (sbx v0.33.0)
 	Env         string // env var injected into the sandbox
 	Placeholder string
 	ValueMasked string // masked display value
@@ -128,7 +136,7 @@ func parseSecretList(raw string) (*Secrets, error) {
 	for _, r := range crows {
 		out.Custom = append(out.Custom, Custom{
 			Scope:       normScope(r["SCOPE"]),
-			Target:      r["TARGET"],
+			Targets:     r["TARGETS"],
 			Env:         r["ENV"],
 			Placeholder: r["PLACEHOLDER"],
 			ValueMasked: r["SECRET"],
@@ -175,10 +183,15 @@ func Remove(ctx context.Context, c *client.Client, scope, service string) error 
 }
 
 // RemoveCustom deletes the custom (set-custom) secret for a target host in scope
-// ("" = global). Custom secrets are keyed by host, so this uses `secret rm --host`
-// — not the positional service name Remove takes. Idempotent: the CLI exits 0 and
-// reports "Deleted 0" when nothing matches. (The --host flag is absent from
-// `sbx secret rm --help` but is supported.)
+// ("" = global). This uses `secret rm --host` — not the positional service name
+// Remove takes. Idempotent: the CLI exits 0 and reports "Deleted 0" when nothing
+// matches. (The --host flag is absent from `sbx secret rm --help` but is supported.)
+//
+// Limitation (sbx v0.33.0): rm --host only matches single-host entries. A custom
+// secret created with multiple Hosts (one secret covering several targets) cannot
+// be removed by any one of its hosts — rm reports "Deleted 0". Re-create it with a
+// single Host reusing the same Placeholder (custom secrets are keyed by placeholder)
+// to collapse it, then RemoveCustom by that host.
 func RemoveCustom(ctx context.Context, c *client.Client, scope, host string) error {
 	r, err := c.Runner()
 	if err != nil {
