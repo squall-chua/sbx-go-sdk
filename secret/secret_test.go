@@ -33,6 +33,9 @@ func TestSecretOps(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, SetCustom(ctx, c, "", CustomSecret{Host: "api.example.com", Env: "API_KEY", Value: "sk-123"}))
+	require.NoError(t, SetCustom(ctx, c, "", CustomSecret{
+		Host: "*.example.com", Hosts: []string{"api.other.io"}, Env: "API_KEY", Value: "sk-456",
+	}))
 	txt, err := ListRaw(ctx, c, "")
 	require.NoError(t, err)
 	require.Contains(t, txt, "SECRET-TEXT")
@@ -43,6 +46,7 @@ func TestSecretOps(t *testing.T) {
 	data, _ := os.ReadFile(argFile)
 	lines := string(data)
 	require.Contains(t, lines, "secret set-custom -g --host api.example.com --env API_KEY --value sk-123")
+	require.Contains(t, lines, "secret set-custom -g --host *.example.com --host api.other.io --env API_KEY --value sk-456")
 	require.Contains(t, lines, "secret ls")
 	require.Contains(t, lines, "secret rm mysandbox openai -f")
 	require.Contains(t, lines, "secret rm -g --host api.example.com -f")
@@ -54,7 +58,7 @@ func TestParseSecretList(t *testing.T) {
 		"my-sandbox  service  openai  testte**\n" +
 		"\n" +
 		"CUSTOM SECRETS\n" +
-		"SCOPE     TARGET    ENV      PLACEHOLDER  SECRET\n" +
+		"SCOPE     TARGETS   ENV      PLACEHOLDER  SECRET\n" +
 		"(global)  api.x.io  API_KEY  ph-123       sk-***\n"
 
 	got, err := parseSecretList(raw)
@@ -65,7 +69,7 @@ func TestParseSecretList(t *testing.T) {
 	}}, got.Stored)
 
 	require.Equal(t, []Custom{{
-		Scope: "", Target: "api.x.io", Env: "API_KEY", Placeholder: "ph-123", ValueMasked: "sk-***",
+		Scope: "", Targets: "api.x.io", Env: "API_KEY", Placeholder: "ph-123", ValueMasked: "sk-***",
 	}}, got.Custom)
 }
 
@@ -78,14 +82,14 @@ func TestParseSecretList_Empty(t *testing.T) {
 
 func TestParseSecretList_CustomOnly(t *testing.T) {
 	raw := "CUSTOM SECRETS\n" +
-		"SCOPE     TARGET    ENV      PLACEHOLDER  SECRET\n" +
+		"SCOPE     TARGETS   ENV      PLACEHOLDER  SECRET\n" +
 		"(global)  api.x.io  API_KEY  ph-123       sk-***\n"
 
 	got, err := parseSecretList(raw)
 	require.NoError(t, err)
 	require.Empty(t, got.Stored)
 	require.Len(t, got.Custom, 1)
-	require.Equal(t, "api.x.io", got.Custom[0].Target)
+	require.Equal(t, "api.x.io", got.Custom[0].Targets)
 }
 
 func TestParseSecretList_Drift(t *testing.T) {

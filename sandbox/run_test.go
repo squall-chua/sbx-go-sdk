@@ -34,6 +34,27 @@ func TestDefinition_ToRunArgs_NoAgentArgs(t *testing.T) {
 	require.Equal(t, []string{"run", "shell", "/w"}, args)
 }
 
+func TestDefinition_ToRunArgs_Name(t *testing.T) {
+	d := newDefinition(WithAgent("claude"), WithWorkspace("/w"), WithName("proj"))
+	args, err := d.toRunArgs()
+	require.NoError(t, err)
+	require.Equal(t, []string{"run", "claude", "/w", "--name", "proj"}, args)
+}
+
+func TestSandboxRun_ReattachesByName(t *testing.T) {
+	// Re-attach must use `run --name <name>`; the positional form is deprecated in v0.33.0.
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := clientWithRecordingSbx(t, argFile)
+	sb := NewForTest(c, "s1")
+
+	code, err := sb.Run(context.Background(), WithStdio(nil, nil, nil))
+	require.NoError(t, err)
+	require.Equal(t, 0, code)
+
+	data, _ := os.ReadFile(argFile)
+	require.Contains(t, string(data), "run --name s1")
+}
+
 func TestRun_Package_InheritsExitCode(t *testing.T) {
 	// fake sbx echoes the run args and exits 5; stub daemon needed for client.New.
 	sock := filepath.Join(t.TempDir(), "d.sock")

@@ -1,7 +1,7 @@
 # sbx-go-sdk
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev/)
-[![sbx v0.32.0](https://img.shields.io/badge/sbx-v0.32.0-2496ED?logo=docker)](https://docs.docker.com/)
+[![sbx v0.33.0](https://img.shields.io/badge/sbx-v0.33.0-2496ED?logo=docker)](https://docs.docker.com/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/squall-chua/sbx-go-sdk.svg)](https://pkg.go.dev/github.com/squall-chua/sbx-go-sdk)
 
 A Go SDK for automating **Docker Sandboxes** (`sbx`) — isolated micro-VM environments
@@ -146,7 +146,7 @@ sbx login
 **4. Verify** the CLI and daemon are healthy:
 
 ```bash
-sbx version    # CLI + daemon version (target this SDK against v0.32.0)
+sbx version    # CLI + daemon version (target this SDK against v0.33.0)
 sbx diagnose   # diagnose install / daemon issues
 sbx ls         # list sandboxes (an empty list means the daemon is reachable)
 ```
@@ -168,7 +168,7 @@ Requires:
   [Set up `sbx`](#set-up-sbx-prerequisite) above. The SDK shells out to it for create/run/cp/etc.
 - A reachable **`sandboxd`** — pass `client.WithAutoStart()` and the SDK will start it for you.
 
-This SDK is built and live-verified against **`sbx` / `sandboxd` v0.32.0** (daemon API `0.10.0`);
+This SDK is built and live-verified against **`sbx` / `sandboxd` v0.33.0** (daemon API `0.12.0`);
 see [Version alignment](#version-alignment) for how it tracks newer `sbx` releases.
 
 ## Quick start
@@ -418,7 +418,7 @@ sandbox.Run(ctx, c, sandbox.WithAgent("shell"), sandbox.WithWorkspace("."),
 
 ### 7. Copy files
 
-`cp` shells out to the `sbx` binary (the daemon's `/files` GET is `501` in v0.32.0).
+`cp` shells out to the `sbx` binary (the daemon's `/files` GET is `404` in v0.33.0).
 
 ```go
 _ = sb.CopyTo(ctx, "./config.json", "/home/user/config.json")
@@ -555,12 +555,12 @@ source. Invoke it with `/sbx-go-sdk`.
 ## Version alignment
 
 This SDK is **pinned to a tested `sbx` / `sandboxd` range**. It is currently built and
-live-verified against **`sbx` v0.32.0** with daemon REST **`api_version 0.10.0`**. Both values
+live-verified against **`sbx` v0.33.0** with daemon REST **`api_version 0.12.0`**. Both values
 are exported constants you can read at runtime:
 
 ```go
-client.ClientVersion    // "v0.32.0" — the sbx/daemon version the SDK was built against
-client.TestedAPIVersion // "0.10.0"  — the daemon REST api_version its wire types were generated from
+client.ClientVersion    // "v0.33.0" — the sbx/daemon version the SDK was built against
+client.TestedAPIVersion // "0.12.0"  — the daemon REST api_version its wire types were generated from
 ```
 
 **Why a pin exists.** The [transport is hybrid](#how-it-works): REST wire structs are generated
@@ -610,16 +610,16 @@ contract test is what tells maintainers a re-sync is due.
 
 ## Known deviations & limitations
 
-Verified live against `sandboxd` v0.32.0:
+Verified live against `sandboxd` v0.33.0:
 
-- **`cp` is shell-out** — the daemon's `/files` GET is `501`.
+- **`cp` is shell-out** — the daemon's `/files` GET is `404`.
 - **`policy.List` / `secret.List` parse the CLI's table into typed values** — no `--json`
   upstream, so the SDK parses the rendered table and returns `client.ErrUnexpectedFormat` if
   its columns drift; use `policy.ListRaw` / `secret.ListRaw` for the unparsed text.
   `policy.Profiles` is still raw text.
 - **`SaveTemplate` requires a stopped sandbox** — the daemon refuses to snapshot a running one,
   and the CLI would otherwise block on an interactive stop prompt.
-- **`UnpublishPort` shells out** — no confirmed REST unpublish path in v0.32.0.
+- **`UnpublishPort` shells out** — no confirmed REST unpublish path in v0.33.0.
 - **`secret.SetCustom` is experimental** and exposes the value via the process list.
 
 See the design spec and Plan 2 doc under [`docs/`](docs/) for the full rationale.

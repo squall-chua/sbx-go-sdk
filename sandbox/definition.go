@@ -74,6 +74,9 @@ func (d *Definition) toRunArgs() ([]string, error) {
 	}
 	args := []string{"run", d.agent}
 	args = append(args, d.workspaces...)
+	if d.name != "" {
+		args = append(args, "--name", d.name)
+	}
 	if d.cpus > 0 {
 		args = append(args, "--cpus", strconv.Itoa(d.cpus))
 	}

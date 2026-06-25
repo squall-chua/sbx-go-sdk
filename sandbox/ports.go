@@ -36,7 +36,7 @@ func (s *Sandbox) PublishPort(ctx context.Context, p Port) ([]Port, error) {
 }
 
 // UnpublishPort removes a published port. No REST unpublish path is confirmed in
-// v0.32.0, so this shells out to `sbx ports {name} --unpublish SPEC`, where spec is
+// v0.33.0, so this shells out to `sbx ports {name} --unpublish SPEC`, where spec is
 // the CLI port spec, e.g. "127.0.0.1:18080:8080/tcp" or "18080:8080".
 func (s *Sandbox) UnpublishPort(ctx context.Context, spec string) error {
 	r, err := s.cli.Runner()

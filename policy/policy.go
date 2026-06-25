@@ -1,5 +1,5 @@
 // Package policy manages sandbox network/egress policies. Rule management is
-// engine-layer (no working daemon REST path in v0.32.0), so mutations and listing
+// engine-layer (no working daemon REST path in v0.33.0), so mutations and listing
 // shell out to `sbx policy`; only Log uses REST (GET /network/log).
 package policy
 
