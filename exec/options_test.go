@@ -18,7 +18,7 @@ func TestProcessOptions_BuildBody(t *testing.T) {
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(b, &got))
 	require.Equal(t, []any{"echo", "hi"}, got["cmd"])
-	require.Equal(t, "/work", got["workdir"])
+	require.Equal(t, "/work", got["working_dir"])
 	require.Equal(t, "dev", got["user"])
 	require.Equal(t, true, got["tty"])
 	require.Equal(t, map[string]any{"CI": "1"}, got["env"])
