@@ -11,7 +11,7 @@ import (
 )
 
 // StatusRunning is the daemon's running-status string, as returned by the
-// /sandbox and /sandbox/{name} endpoints (verified live against sandboxd v0.33.0).
+// /sandbox and /sandbox/{name} endpoints (verified live against sandboxd v0.34.0).
 const StatusRunning = "running"
 
 // Info is the daemon's sandbox description returned by Inspect. It is an alias for
