@@ -39,7 +39,7 @@ func TestPolicyMutations(t *testing.T) {
 	require.NoError(t, Reset(ctx, c))
 	data, _ := os.ReadFile(argFile)
 	lines := string(data)
-	require.Contains(t, lines, "policy set-default balanced")
+	require.Contains(t, lines, "policy init balanced")
 	require.Contains(t, lines, "policy allow network example.com api.github.com")
 	require.Contains(t, lines, "policy deny network --sandbox mysandbox evil.example")
 	require.Contains(t, lines, "policy rm network --sandbox mysandbox --resource evil.example")

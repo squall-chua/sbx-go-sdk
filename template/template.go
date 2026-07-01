@@ -53,7 +53,7 @@ func httpStatus(resp *http.Response) error {
 
 // Remove deletes a template image by ref (tag or id). REST DELETE
 // /docker/images/remove?name=<ref>. Wire shape verified live against sandboxd
-// v0.33.0 (internal/integration TestSmoke_TemplateSaveRemoveLoad).
+// v0.34.0 (internal/integration TestSmoke_TemplateSaveRemoveLoad).
 func Remove(ctx context.Context, c *client.Client, ref string) error {
 	path := "/docker/images/remove?name=" + url.QueryEscape(ref)
 	resp, err := c.Transport().Do(ctx, http.MethodDelete, path, nil, nil)
@@ -68,7 +68,7 @@ func Remove(ctx context.Context, c *client.Client, ref string) error {
 
 // Load imports an image tar into the runtime image store (REST POST
 // /docker/images/load with the tar as the request body). Wire shape verified live
-// against sandboxd v0.33.0 (internal/integration TestSmoke_TemplateSaveRemoveLoad).
+// against sandboxd v0.34.0 (internal/integration TestSmoke_TemplateSaveRemoveLoad).
 func Load(ctx context.Context, c *client.Client, tar io.Reader) error {
 	resp, err := c.Transport().Do(ctx, http.MethodPost, "/docker/images/load", tar, nil)
 	if err != nil {

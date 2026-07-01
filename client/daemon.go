@@ -33,13 +33,13 @@ type versionResponse struct {
 }
 
 // ClientVersion is the sbx/daemon version this SDK was built/tested against.
-const ClientVersion = "v0.33.0"
+const ClientVersion = "v0.34.0"
 
 // TestedAPIVersion is the daemon REST api_version this SDK's wire types were
 // generated from and validated against (see DaemonHealthResponse.APIVersion). The
 // integration contract test (TestContract_VersionAlignment) fails when a live
 // daemon drifts from it, signalling a re-sync is due.
-const TestedAPIVersion = "0.12.0"
+const TestedAPIVersion = "0.16.0"
 
 // CheckVersion asks the daemon whether this client is compatible.
 // Returns "compatible", "incompatible", or "unknown".

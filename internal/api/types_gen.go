@@ -6,8 +6,14 @@
 // them as empty structs. The daemon serializes them as JSON strings
 // (e.g. "running", "tcp"), so SandboxInfo.Status and
 // PublishedPort.Protocol are typed `string` here and the empty enum structs
-// were removed. Re-running dwarfgen will reintroduce the empty structs;
-// re-apply these edits if you regenerate.
+// were removed.
+//
+// Likewise SandboxInfo.Labels: DWARF reports it as a string, but the daemon
+// serializes it as a JSON object (map of label key -> value), so it is typed
+// `*map[string]string` here.
+//
+// Re-running dwarfgen will reintroduce the empty structs and re-widen Labels to
+// *string; re-apply these edits if you regenerate.
 
 package api
 
@@ -17,19 +23,19 @@ var _ = time.Time{}
 
 // SandboxInfo
 type SandboxInfo struct {
-	AdditionalWorkspaces *[]WorkspaceMount `json:"additional_workspaces,omitempty"`
-	Agent                *string           `json:"agent,omitempty"`
-	CreatedAt            *time.Time        `json:"created_at,omitempty"`
-	Id                   string            `json:"id"`
-	MountPolicyDenied    *bool             `json:"mount_policy_denied,omitempty"`
-	Name                 string            `json:"name"`
-	NetworkName          *string           `json:"network_name,omitempty"`
-	Ports                *[]PublishedPort  `json:"ports,omitempty"`
-	Profile              *string           `json:"profile,omitempty"`
-	SourceRepoDir        *string           `json:"source_repo_dir,omitempty"`
-	Status               string            `json:"status"`
-	Workspace            string            `json:"workspace"`
-	Worktree             *SandboxWorktree  `json:"worktree,omitempty"`
+	AdditionalWorkspaces *[]WorkspaceMount  `json:"additional_workspaces,omitempty"`
+	Agent                *string            `json:"agent,omitempty"`
+	CreatedAt            *time.Time         `json:"created_at,omitempty"`
+	Id                   string             `json:"id"`
+	Labels               *map[string]string `json:"labels,omitempty"`
+	MountPolicyDenied    *bool              `json:"mount_policy_denied,omitempty"`
+	Name                 string             `json:"name"`
+	Ports                *[]PublishedPort   `json:"ports,omitempty"`
+	Profile              *string            `json:"profile,omitempty"`
+	SourceRepoDir        *string            `json:"source_repo_dir,omitempty"`
+	Status               string             `json:"status"`
+	Workspace            string             `json:"workspace"`
+	Worktree             *SandboxWorktree   `json:"worktree,omitempty"`
 }
 
 // WorkspaceMount

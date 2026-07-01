@@ -1,5 +1,5 @@
 // Package policy manages sandbox network/egress policies. Rule management is
-// engine-layer (no working daemon REST path in v0.33.0), so mutations and listing
+// engine-layer (no working daemon REST path in v0.34.0), so mutations and listing
 // shell out to `sbx policy`; only Log uses REST (GET /network/log).
 package policy
 
@@ -33,8 +33,10 @@ func run(ctx context.Context, c *client.Client, args ...string) error {
 }
 
 // SetDefault sets the baseline network policy: "allow-all", "balanced", or "deny-all".
+// Shells out to `sbx policy init` (the old `policy set-default` name was deprecated
+// to an alias in sbx v0.34.0).
 func SetDefault(ctx context.Context, c *client.Client, name string) error {
-	return run(ctx, c, "policy", "set-default", name)
+	return run(ctx, c, "policy", "init", name)
 }
 
 // Allow adds an allow rule for the given hosts within scope ("" = global).
