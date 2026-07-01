@@ -54,6 +54,8 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Templates | `sb.SaveTemplate(ctx, tag)`, `template.List/Inspect/Remove/Load` |
 | Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log` |
 | Secrets | `secret.SetCustom/List/Remove` |
+| Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
+| SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.Port`, `ssh.TargetFor(ctx, c, name)` |
 
 Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`, `WithAutoStart`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
@@ -75,6 +77,11 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   `secret.ListRaw` for raw text; `policy.Profiles` stays raw text.
 - **`secret.SetCustom` is experimental** and exposes the value in host process listings — for
   headless agent credentials prefer `exec.WithEnv`.
+- **`settings`/`ssh` mutations are fire-and-forget shell-outs** — `settings.Set`,
+  `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and
+  return before the daemon's ~5s hot-reload. `settings.Get/List` and `ssh.Port/Enabled`
+  read via `--json`. `ssh.Enable` sets only `feature.ssh` (also needs
+  `platform.allowExperimentalFeatures`, default true).
 - **`cp` and `UnpublishPort` shell out** (no daemon REST path) — they need the `sbx` binary.
 - **A non-zero agent/command exit is `(code, nil)`** — only spawn/transport failures are errors.
   Check the returned code.
