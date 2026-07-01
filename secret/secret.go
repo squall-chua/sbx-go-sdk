@@ -187,11 +187,13 @@ func Remove(ctx context.Context, c *client.Client, scope, service string) error 
 // Remove takes. Idempotent: the CLI exits 0 and reports "Deleted 0" when nothing
 // matches. (The --host flag is absent from `sbx secret rm --help` but is supported.)
 //
-// Limitation (sbx v0.33.0): rm --host only matches single-host entries. A custom
-// secret created with multiple Hosts (one secret covering several targets) cannot
-// be removed by any one of its hosts — rm reports "Deleted 0". Re-create it with a
-// single Host reusing the same Placeholder (custom secrets are keyed by placeholder)
-// to collapse it, then RemoveCustom by that host.
+// Limitation (verified sbx v0.34.0): rm --host only matches single-host entries. A
+// custom secret created with multiple Hosts (one secret covering several targets)
+// cannot be removed by any one of its hosts — rm reports "Deleted 0". To delete such
+// an entry, remove it by placeholder instead — `sbx secret rm --placeholder <ph>`
+// deletes the whole entry regardless of host count (custom secrets are keyed by
+// placeholder). The SDK exposes only the host-keyed path here; use the CLI for the
+// placeholder path.
 func RemoveCustom(ctx context.Context, c *client.Client, scope, host string) error {
 	r, err := c.Runner()
 	if err != nil {

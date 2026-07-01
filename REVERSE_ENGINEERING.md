@@ -1,14 +1,19 @@
 # `sbx` CLI — Reverse Engineering Notes
 
-Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26 binary, with DWARF).
+Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.4 binary, with DWARF).
 
-- **Module:** `github.com/docker/sandboxes` `v0.32.0`
+- **Module:** `github.com/docker/sandboxes` `v0.34.0`
 - **Main package:** `github.com/docker/sandboxes/cli-plugin/cmd/sandboxes`
-- **Daemon API version:** `0.10.0` (build `55580366449bcfebfc1787b9944284cf64c856d7`)
+- **Daemon API version:** `0.16.0` (build `2eae0c4fc3894475da3318615f69783b0e7be747`, 2026-06-26)
 - **What it is:** Docker Sandboxes — isolated micro-VM sandboxes for AI coding agents.
   Shipped both as a standalone `sbx` binary and as a `docker sandboxes` CLI plugin.
 - **Single-binary model (like docker/dockerd):** the same binary is both the CLI
   *and* the `sandboxd` daemon. The CLI re-execs itself to start the daemon.
+
+> Refreshed for **v0.34.0**: the header facts and the §1 command tree were re-verified
+> against the installed binary. §2–§3 (architecture, REST surface) reflect the original
+> v0.32.0 recon; the SDK-exercised REST endpoints are re-confirmed live at v0.34.0 by the
+> `internal/integration` suite.
 
 ---
 
@@ -22,6 +27,7 @@ Global flag: `-D, --debug`.
 ### Visible commands
 ```
 sbx                                          # interactive TUI mode
+sbx tui                                       # open the interactive TUI dashboard (explicit)
 sbx cp [flags] SRC DST                        # copy files host <-> sandbox (SANDBOX:PATH)
 sbx create [flags] AGENT PATH [PATH...]       # create a sandbox for an agent
     create claude|codex|copilot|cursor|docker-agent(cagent)|droid|gemini|kiro|opencode|shell
@@ -40,14 +46,15 @@ sbx policy COMMAND                            # manage sandbox network/egress po
     policy rm    network [--sandbox S]
     policy log [SANDBOX] | ls [SANDBOX] | reset
     policy profile ls
-    policy set-default <allow-all|balanced|deny-all>
+    policy init <allow-all|balanced|deny-all>   # renamed from set-default in v0.34.0 (kept as hidden deprecated alias)
 sbx ports SANDBOX [flags]                     # manage published ports
 sbx reset [flags]                             # reset all sandboxes + clean state
 sbx rm [SANDBOX...] [flags]                    # remove sandboxes
 sbx run [flags] SANDBOX | AGENT [PATH...] [-- AGENT_ARGS...]   # run/attach an agent
 sbx secret COMMAND                            # manage stored secrets
-    secret ls [SANDBOX] | rm [-g|SANDBOX] [SERVICE]
+    secret ls [SANDBOX] | rm [-g|SANDBOX] [SERVICE] | rm --placeholder PH | rm --registry REF
     secret set [-g|SANDBOX] [SERVICE] | set-custom [-g|sandbox]
+sbx setup                                     # (experimental) detect host config + prepare sbx
 sbx stop SANDBOX [SANDBOX...]                  # stop without removing
 sbx template COMMAND                          # manage sandbox templates
     template load FILE | ls | rm TAG|ID | save SANDBOX TAG
