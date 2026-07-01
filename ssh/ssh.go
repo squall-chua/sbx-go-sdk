@@ -62,3 +62,32 @@ func TargetFor(ctx context.Context, c *client.Client, sandboxName string) (Targe
 	}
 	return Target{User: sandboxName, Host: "127.0.0.1", Port: port}, nil
 }
+
+// Enable turns on the SSH endpoint (settings set feature.ssh true). Fire-and-forget:
+// the daemon hot-reloads within ~5s. Requires platform.allowExperimentalFeatures
+// (default true), which Enable does not modify.
+func Enable(ctx context.Context, c *client.Client) error {
+	return settings.Set(ctx, c, featureKey, "true")
+}
+
+// Disable turns off the SSH endpoint (settings set feature.ssh false — explicit, so
+// the result is deterministic regardless of the default).
+func Disable(ctx context.Context, c *client.Client) error {
+	return settings.Set(ctx, c, featureKey, "false")
+}
+
+// Enabled reports whether the SSH endpoint feature flag is on. feature.ssh is a
+// structured flag; its value is {"enabled":bool,…}.
+func Enabled(ctx context.Context, c *client.Client) (bool, error) {
+	s, err := settings.Get(ctx, c, featureKey)
+	if err != nil {
+		return false, err
+	}
+	var f struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(s.Value, &f); err != nil {
+		return false, fmt.Errorf("ssh: parse %s value %s: %w: %w", featureKey, s.Value, client.ErrUnexpectedFormat, err)
+	}
+	return f.Enabled, nil
+}

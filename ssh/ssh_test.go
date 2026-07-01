@@ -56,3 +56,21 @@ func TestPortAndTargetFor(t *testing.T) {
 	args, _ := os.ReadFile(argFile)
 	require.Contains(t, string(args), "settings get --json ssh.port")
 }
+
+func TestEnableDisableArgs(t *testing.T) {
+	c, argFile := newFakeSbx(t, 0, "", "")
+	ctx := context.Background()
+	require.NoError(t, Enable(ctx, c))
+	require.NoError(t, Disable(ctx, c))
+	args, _ := os.ReadFile(argFile)
+	lines := string(args)
+	require.Contains(t, lines, "settings set feature.ssh true")
+	require.Contains(t, lines, "settings set feature.ssh false")
+}
+
+func TestEnabledParsesFeatureFlag(t *testing.T) {
+	c, _ := newFakeSbx(t, 0, `{"key":"feature.ssh","value":{"enabled":true,"variant":""},"type":"json","source":"override","description":"flag"}`, "")
+	on, err := Enabled(context.Background(), c)
+	require.NoError(t, err)
+	require.True(t, on)
+}
