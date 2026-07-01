@@ -76,3 +76,22 @@ func Get(ctx context.Context, c *client.Client, key string) (*Setting, error) {
 	}
 	return &s, nil
 }
+
+func run(ctx context.Context, c *client.Client, args ...string) error {
+	_, err := capture(ctx, c, args...)
+	return err
+}
+
+// Set writes an override (`sbx settings set <key> <value>`). The value is parsed by
+// the setting's declared type; JSON values (e.g. `["docker.io/"]`) pass through as a
+// single argument. Fire-and-forget: returns once the file is written; the daemon
+// hot-reloads within ~5s.
+func Set(ctx context.Context, c *client.Client, key, value string) error {
+	return run(ctx, c, "settings", "set", key, value)
+}
+
+// Unset removes an override (`sbx settings unset <key>`), reverting to the env or
+// default value. Fire-and-forget (see Set).
+func Unset(ctx context.Context, c *client.Client, key string) error {
+	return run(ctx, c, "settings", "unset", key)
+}

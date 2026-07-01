@@ -86,3 +86,16 @@ func TestGetErrorPropagatesCLIError(t *testing.T) {
 	require.ErrorAs(t, err, &ce) // raw shell-out error, no sentinel
 	require.Equal(t, 1, ce.ExitCode)
 }
+
+func TestSetUnsetArgs(t *testing.T) {
+	c, argFile := newFakeSbx(t, 0, "", "")
+	ctx := context.Background()
+	require.NoError(t, Set(ctx, c, "feature.ssh", "true"))
+	require.NoError(t, Set(ctx, c, "kit.allowedSources", `["docker.io/"]`))
+	require.NoError(t, Unset(ctx, c, "feature.ssh"))
+	args, _ := os.ReadFile(argFile)
+	lines := string(args)
+	require.Contains(t, lines, "settings set feature.ssh true")
+	require.Contains(t, lines, `settings set kit.allowedSources ["docker.io/"]`)
+	require.Contains(t, lines, "settings unset feature.ssh")
+}
