@@ -6,9 +6,12 @@
 package settings
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/squall-chua/sbx-go-sdk/client"
 )
 
 // Setting is one entry from `sbx settings {get,list} --json`.
@@ -37,4 +40,39 @@ func (s Setting) Text() string {
 		return str
 	}
 	return strings.TrimSpace(string(s.Value))
+}
+
+func capture(ctx context.Context, c *client.Client, args ...string) (string, error) {
+	r, err := c.Runner()
+	if err != nil {
+		return "", err
+	}
+	return r.Capture(ctx, nil, args...)
+}
+
+// List returns all settings (`sbx settings list --json`).
+func List(ctx context.Context, c *client.Client) ([]Setting, error) {
+	out, err := capture(ctx, c, "settings", "list", "--json")
+	if err != nil {
+		return nil, err
+	}
+	var ss []Setting
+	if err := json.Unmarshal([]byte(out), &ss); err != nil {
+		return nil, fmt.Errorf("settings list: %w: %w", client.ErrUnexpectedFormat, err)
+	}
+	return ss, nil
+}
+
+// Get returns one setting (`sbx settings get --json <key>`). An undefined key makes
+// the CLI exit non-zero, which surfaces as the raw *client.CLIError.
+func Get(ctx context.Context, c *client.Client, key string) (*Setting, error) {
+	out, err := capture(ctx, c, "settings", "get", "--json", key)
+	if err != nil {
+		return nil, err
+	}
+	var s Setting
+	if err := json.Unmarshal([]byte(out), &s); err != nil {
+		return nil, fmt.Errorf("settings get %q: %w: %w", key, client.ErrUnexpectedFormat, err)
+	}
+	return &s, nil
 }
