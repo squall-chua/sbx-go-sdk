@@ -23,7 +23,9 @@ type Setting struct {
 	Description string          `json:"description"`
 }
 
-// Bool decodes the value as a JSON boolean.
+// Bool decodes the value as a JSON boolean. Unlike ssh.Port/ssh.Enabled, a
+// parse failure here returns a plain typed error, not client.ErrUnexpectedFormat,
+// because a type mismatch on Bool is a caller-side error, not a daemon format drift.
 func (s Setting) Bool() (bool, error) {
 	var b bool
 	if err := json.Unmarshal(s.Value, &b); err != nil {

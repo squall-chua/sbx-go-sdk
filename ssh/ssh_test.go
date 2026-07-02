@@ -68,6 +68,18 @@ func TestEnableDisableArgs(t *testing.T) {
 	require.Contains(t, lines, "settings set feature.ssh false")
 }
 
+func TestPortEnabledWrapMalformedValue(t *testing.T) {
+	ctx := context.Background()
+
+	c, _ := newFakeSbx(t, 0, `{"key":"ssh.port","value":"notanint","type":"int","source":"default","description":""}`, "")
+	_, err := Port(ctx, c)
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
+
+	c, _ = newFakeSbx(t, 0, `{"key":"feature.ssh","value":"notanobject","type":"json","source":"default","description":""}`, "")
+	_, err = Enabled(ctx, c)
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
+}
+
 func TestEnabledParsesFeatureFlag(t *testing.T) {
 	c, _ := newFakeSbx(t, 0, `{"key":"feature.ssh","value":{"enabled":true,"variant":""},"type":"json","source":"override","description":"flag"}`, "")
 	on, err := Enabled(context.Background(), c)

@@ -87,6 +87,18 @@ func TestGetErrorPropagatesCLIError(t *testing.T) {
 	require.Equal(t, 1, ce.ExitCode)
 }
 
+func TestListGetWrapMalformedJSON(t *testing.T) {
+	ctx := context.Background()
+
+	c, _ := newFakeSbx(t, 0, "{ not json", "")
+	_, err := List(ctx, c)
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
+
+	c, _ = newFakeSbx(t, 0, "{ not json", "")
+	_, err = Get(ctx, c, "ssh.port")
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
+}
+
 func TestSetUnsetArgs(t *testing.T) {
 	c, argFile := newFakeSbx(t, 0, "", "")
 	ctx := context.Background()
