@@ -229,6 +229,8 @@ func main() {
 | `template` | `…/template` | List / inspect / remove / load template images. |
 | `policy` | `…/policy` | Network egress policy: defaults, allow/deny rules, profiles, proxy log. |
 | `secret` | `…/secret` | Stored proxy-injected secrets (experimental upstream). |
+| `settings` | `…/settings` | Read/write persistent sandboxd settings via `sbx settings … --json`. |
+| `ssh` | `…/ssh` | Experimental SSH endpoint: enable/disable, `setup`, connection targets — composed over `settings`. |
 
 Two return types are re-exported aliases so external callers never need `internal/*`:
 `sandbox.Info` (daemon sandbox description) and `client.Runner` (the `sbx`-binary runner).
@@ -501,6 +503,33 @@ _ = secret.RemoveCustom(ctx, c, "", "api.example.com") // a custom secret (keyed
 
 ---
 
+### 12. Settings & SSH
+
+`settings` wraps `sbx settings … --json`; `ssh` manages the experimental SSH endpoint
+(composed over `settings`). Both shell out to the `sbx` binary.
+
+```go
+// Read a setting (typed JSON value).
+s, _ := settings.Get(ctx, c, "ssh.port")
+port, _ := strconv.Atoi(s.Text())          // or s.Bool() for bool settings
+
+// Write / clear an override (fire-and-forget; daemon hot-reloads within ~5s).
+_ = settings.Set(ctx, c, "kit.allowedSources", `["docker.io/","ghcr.io/"]`)
+_ = settings.Unset(ctx, c, "kit.allowedSources")
+
+// Enable and connect to the SSH endpoint.
+_ = ssh.Enable(ctx, c)                       // settings set feature.ssh true
+_ = ssh.Setup(ctx, c)                        // provisions ~/.ssh/config alias + key
+tgt, _ := ssh.TargetFor(ctx, c, "mybox")     // {User:"mybox", Host:"127.0.0.1", Port:2222}
+fmt.Println(tgt.Command())                   // ssh mybox@127.0.0.1 -p 2222
+```
+
+> `Set`/`Enable`/etc. are fire-and-forget — they write `settings.json` and return; the
+> daemon reloads within ~5s. `ssh.Enable` toggles only `feature.ssh`; SSH also requires
+> `platform.allowExperimentalFeatures` (default `true`).
+
+---
+
 ## Error handling
 
 Branch on sentinels with `errors.Is`; pull detail out of `*client.APIError` (REST) or
@@ -621,5 +650,9 @@ Verified live against `sandboxd` v0.34.0:
   and the CLI would otherwise block on an interactive stop prompt.
 - **`UnpublishPort` shells out** — no confirmed REST unpublish path in v0.34.0.
 - **`secret.SetCustom` is experimental** and exposes the value via the process list.
+- **`settings`/`ssh` mutations are fire-and-forget** — `settings.Set/Unset` and
+  `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and return before
+  the daemon's ~5s hot-reload; reads (`settings.Get/List`, `ssh.Port/Enabled`) use `--json`.
+  `ssh.Enable` sets only `feature.ssh` (SSH also needs `platform.allowExperimentalFeatures`, default true).
 
 See the design spec and Plan 2 doc under [`docs/`](docs/) for the full rationale.

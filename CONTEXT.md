@@ -80,3 +80,15 @@ _Avoid_: rule, ACL, firewall rule
 Where a policy rule comes from — `local` (set on this host) versus remote governance. Shown
 as the `PROVENANCE` column of `sbx policy ls`.
 _Avoid_: source, origin, owner
+
+**Setting**:
+A persistent daemon configuration key managed by `sbx settings` (e.g. `feature.ssh`,
+`ssh.port`, `kit.allowedSources`). Each has a typed value and a source (`default` vs an
+override). The daemon hot-reloads changes from `settings.json`.
+_Avoid_: config, option, preference, flag
+
+**SSH Endpoint**:
+The native SSH access to sandboxes exposed by the daemon (gated by the `feature.ssh`
+setting). Sandbox name is the SSH username; provisioned for a normal `ssh` client via
+`sbx ssh setup`. EXPERIMENTAL upstream.
+_Avoid_: shell, remote, tunnel
