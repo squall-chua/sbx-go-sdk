@@ -1,7 +1,7 @@
 # sbx-go-sdk
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev/)
-[![sbx v0.34.0](https://img.shields.io/badge/sbx-v0.34.0-2496ED?logo=docker)](https://docs.docker.com/)
+[![sbx v0.35.0](https://img.shields.io/badge/sbx-v0.35.0-2496ED?logo=docker)](https://docs.docker.com/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/squall-chua/sbx-go-sdk.svg)](https://pkg.go.dev/github.com/squall-chua/sbx-go-sdk)
 
 A Go SDK for automating **Docker Sandboxes** (`sbx`) — isolated micro-VM environments
@@ -146,7 +146,7 @@ sbx login
 **4. Verify** the CLI and daemon are healthy:
 
 ```bash
-sbx version    # CLI + daemon version (target this SDK against v0.34.0)
+sbx version    # CLI + daemon version (target this SDK against v0.35.0)
 sbx diagnose   # diagnose install / daemon issues
 sbx ls         # list sandboxes (an empty list means the daemon is reachable)
 ```
@@ -168,7 +168,7 @@ Requires:
   [Set up `sbx`](#set-up-sbx-prerequisite) above. The SDK shells out to it for create/run/cp/etc.
 - A reachable **`sandboxd`** — pass `client.WithAutoStart()` and the SDK will start it for you.
 
-This SDK is built and live-verified against **`sbx` / `sandboxd` v0.34.0** (daemon API `0.16.0`);
+This SDK is built and live-verified against **`sbx` / `sandboxd` v0.35.0** (daemon API `0.22.0`);
 see [Version alignment](#version-alignment) for how it tracks newer `sbx` releases.
 
 ## Quick start
@@ -420,7 +420,7 @@ sandbox.Run(ctx, c, sandbox.WithAgent("shell"), sandbox.WithWorkspace("."),
 
 ### 7. Copy files
 
-`cp` shells out to the `sbx` binary (the daemon's `/files` GET is `404` in v0.34.0).
+`cp` shells out to the `sbx` binary (the daemon's `/files` GET is `404` in v0.35.0).
 
 ```go
 _ = sb.CopyTo(ctx, "./config.json", "/home/user/config.json")
@@ -510,18 +510,18 @@ _ = secret.RemoveCustom(ctx, c, "", "api.example.com") // a custom secret (keyed
 
 ```go
 // Read a setting (typed JSON value).
-s, _ := settings.Get(ctx, c, "ssh.port")
-port, _ := strconv.Atoi(s.Text())          // or s.Bool() for bool settings
+s, _ := settings.Get(ctx, c, "ssh.autoCreate")
+auto, _ := s.Bool()                          // or s.Text() for string settings
 
 // Write / clear an override (fire-and-forget; daemon hot-reloads within ~5s).
 _ = settings.Set(ctx, c, "kit.allowedSources", `["docker.io/","ghcr.io/"]`)
 _ = settings.Unset(ctx, c, "kit.allowedSources")
 
 // Enable and connect to the SSH endpoint.
-_ = ssh.Enable(ctx, c)                       // settings set feature.ssh true
-_ = ssh.Setup(ctx, c)                        // provisions ~/.ssh/config alias + key
-tgt, _ := ssh.TargetFor(ctx, c, "mybox")     // {User:"mybox", Host:"127.0.0.1", Port:2222}
-fmt.Println(tgt.Command())                   // ssh mybox@127.0.0.1 -p 2222
+_ = ssh.Enable(ctx, c)             // settings set feature.ssh true
+_ = ssh.Setup(ctx, c)              // writes ~/.ssh/config "Host *.sbx" + known_hosts (no key)
+tgt := ssh.TargetFor("mybox")      // {Host:"mybox.sbx"}
+fmt.Println(tgt.Command())         // ssh mybox.sbx
 ```
 
 > `Set`/`Enable`/etc. are fire-and-forget — they write `settings.json` and return; the
@@ -584,12 +584,12 @@ source. Invoke it with `/sbx-go-sdk`.
 ## Version alignment
 
 This SDK is **pinned to a tested `sbx` / `sandboxd` range**. It is currently built and
-live-verified against **`sbx` v0.34.0** with daemon REST **`api_version 0.16.0`**. Both values
+live-verified against **`sbx` v0.35.0** with daemon REST **`api_version 0.22.0`**. Both values
 are exported constants you can read at runtime:
 
 ```go
-client.ClientVersion    // "v0.34.0" — the sbx/daemon version the SDK was built against
-client.TestedAPIVersion // "0.16.0"  — the daemon REST api_version its wire types were generated from
+client.ClientVersion    // "v0.35.0" — the sbx/daemon version the SDK was built against
+client.TestedAPIVersion // "0.22.0"  — the daemon REST api_version its wire types were generated from
 ```
 
 **Why a pin exists.** The [transport is hybrid](#how-it-works): REST wire structs are generated
@@ -639,20 +639,23 @@ contract test is what tells maintainers a re-sync is due.
 
 ## Known deviations & limitations
 
-Verified live against `sandboxd` v0.34.0:
+Verified live against `sandboxd` v0.35.0:
 
 - **`cp` is shell-out** — the daemon's `/files` GET is `404`.
-- **`policy.List` / `secret.List` parse the CLI's table into typed values** — no `--json`
-  upstream, so the SDK parses the rendered table and returns `client.ErrUnexpectedFormat` if
-  its columns drift; use `policy.ListRaw` / `secret.ListRaw` for the unparsed text.
-  `policy.Profiles` is still raw text.
+- **`policy.List` reads `sbx policy ls --json`** — v0.35.0 replaced the flat per-rule table with a
+  per-policy summary table, so the SDK parses the stable `--json` rule stream and returns
+  `client.ErrUnexpectedFormat` if its shape drifts; use `policy.ListRaw` for the human table.
+  `secret.List` still parses the CLI table (no `--json` upstream); `policy.Profiles` is raw text.
 - **`SaveTemplate` requires a stopped sandbox** — the daemon refuses to snapshot a running one,
   and the CLI would otherwise block on an interactive stop prompt.
-- **`UnpublishPort` shells out** — no confirmed REST unpublish path in v0.34.0.
+- **`UnpublishPort` shells out** — no confirmed REST unpublish path in v0.35.0.
 - **`secret.SetCustom` is experimental** and exposes the value via the process list.
 - **`settings`/`ssh` mutations are fire-and-forget** — `settings.Set/Unset` and
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and return before
-  the daemon's ~5s hot-reload; reads (`settings.Get/List`, `ssh.Port/Enabled`) use `--json`.
+  the daemon's ~5s hot-reload; reads (`settings.Get/List`, `ssh.Enabled`) use `--json`.
   `ssh.Enable` sets only `feature.ssh` (SSH also needs `platform.allowExperimentalFeatures`, default true).
+- **SSH connects by hostname** — v0.35.0 dropped the `ssh.port` loopback model; `ssh.Setup` writes a
+  wildcard `Host *.sbx` block and you connect with `ssh <name>.sbx` (no port, no key). `ssh.TargetFor`
+  builds that hostname.
 
 See the design spec and Plan 2 doc under [`docs/`](docs/) for the full rationale.

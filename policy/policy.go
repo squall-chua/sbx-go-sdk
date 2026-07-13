@@ -1,16 +1,15 @@
 // Package policy manages sandbox network/egress policies. Rule management is
-// engine-layer (no working daemon REST path in v0.34.0), so mutations and listing
+// engine-layer (no working daemon REST path in v0.35.0), so mutations and listing
 // shell out to `sbx policy`; only Log uses REST (GET /network/log).
 package policy
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
-	"github.com/squall-chua/sbx-go-sdk/internal/coltable"
 )
 
 // scopeArgs appends "--sandbox NAME" when scope is non-empty (global otherwise).
@@ -73,67 +72,52 @@ func capture(ctx context.Context, c *client.Client, args ...string) (string, err
 	return r.Capture(ctx, nil, args...)
 }
 
-// policyHeader is the column header of `sbx policy ls`, in order. Drift from this
-// set is reported as client.ErrUnexpectedFormat.
-var policyHeader = []string{"PROVENANCE", "APPLIES_TO", "POLICY/RULE", "TYPE", "DECISION", "RESOURCES"}
-
-// PolicyRule is one rule from `sbx policy ls`, modelling exactly its columns.
+// PolicyRule is one rule from `sbx policy ls --json`, modelling the daemon's
+// filtered rule response. sbx v0.35.0 replaced the flat per-rule table with a
+// per-policy summary table, so List reads the stable --json rule stream instead.
 type PolicyRule struct {
-	Provenance string   // "local", or a remote-governance source
-	AppliesTo  string   // "all" or a sandbox name
-	Rule       string   // POLICY/RULE — rule name, or ID when unnamed
-	Type       string   // "network"
-	Decision   string   // "allow" | "deny"
-	Resources  []string // hosts, gathered across continuation rows
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	PolicyID     string   `json:"policy_id"`
+	Scope        string   `json:"scope"`         // "global" or a sandbox scope
+	AppliesTo    string   `json:"applies_to"`    // "all" or a sandbox name
+	ResourceType string   `json:"resource_type"` // "network", "filesystem read", …
+	Decision     string   `json:"decision"`      // "allow" | "deny"
+	Resources    []string `json:"resources"`
+	Origin       string   `json:"origin"` // "local" or a remote-governance source
+	Status       string   `json:"status"` // "active" | "inactive"
+	Editable     bool     `json:"editable"`
 }
 
-// List returns the parsed `sbx policy ls [SCOPE]` rules. scope "" lists global+all.
-// A format change in the CLI's table yields client.ErrUnexpectedFormat — use
-// ListRaw to fall back to the unparsed text.
+// List returns the parsed `sbx policy ls [SCOPE] --json` rules. scope "" lists all
+// policies; a sandbox name filters to rules that apply to it. A JSON-shape change
+// yields client.ErrUnexpectedFormat — use ListRaw for the raw human table.
 func List(ctx context.Context, c *client.Client, scope string) ([]PolicyRule, error) {
-	raw, err := ListRaw(ctx, c, scope)
+	args := []string{"policy", "ls"}
+	if scope != "" {
+		args = append(args, scope)
+	}
+	args = append(args, "--json")
+	raw, err := capture(ctx, c, args...)
 	if err != nil {
 		return nil, err
 	}
-	return parsePolicyList(raw)
+	var resp struct {
+		Rules []PolicyRule `json:"rules"`
+	}
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return nil, fmt.Errorf("policy list: %w: %w", client.ErrUnexpectedFormat, err)
+	}
+	return resp.Rules, nil
 }
 
-// ListRaw returns the raw `sbx policy ls [SCOPE]` text.
+// ListRaw returns the raw `sbx policy ls [SCOPE]` human table text.
 func ListRaw(ctx context.Context, c *client.Client, scope string) (string, error) {
 	args := []string{"policy", "ls"}
 	if scope != "" {
 		args = append(args, scope)
 	}
 	return capture(ctx, c, args...)
-}
-
-// parsePolicyList maps the policy table to rules. A row with a non-blank PROVENANCE
-// starts a new rule; a continuation row (blank before RESOURCES) appends its host
-// to the current rule. A missing header means an empty listing (not an error).
-func parsePolicyList(raw string) ([]PolicyRule, error) {
-	rows, err := coltable.Parse(raw, policyHeader)
-	if errors.Is(err, coltable.ErrNoHeader) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("policy list: %w: %w", client.ErrUnexpectedFormat, err)
-	}
-	var out []PolicyRule
-	for _, r := range rows {
-		if r["PROVENANCE"] != "" {
-			out = append(out, PolicyRule{
-				Provenance: r["PROVENANCE"],
-				AppliesTo:  r["APPLIES_TO"],
-				Rule:       r["POLICY/RULE"],
-				Type:       r["TYPE"],
-				Decision:   r["DECISION"],
-			})
-		}
-		if res := r["RESOURCES"]; res != "" && len(out) > 0 {
-			out[len(out)-1].Resources = append(out[len(out)-1].Resources, res)
-		}
-	}
-	return out, nil
 }
 
 // Profiles returns the raw `sbx policy profile ls` text.

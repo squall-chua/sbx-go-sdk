@@ -83,7 +83,7 @@ _Avoid_: source, origin, owner
 
 **Setting**:
 A persistent daemon configuration key managed by `sbx settings` (e.g. `feature.ssh`,
-`ssh.port`, `kit.allowedSources`). Each has a typed value and a source (`default` vs an
+`ssh.autoCreate`, `kit.allowedSources`). Each has a typed value and a source (`default` vs an
 override). The daemon hot-reloads changes from `settings.json`.
 _Avoid_: config, option, preference, flag
 

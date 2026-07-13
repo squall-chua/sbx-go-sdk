@@ -36,25 +36,13 @@ func newFakeSbx(t *testing.T, exit int, stdout, stderr string) (*client.Client, 
 }
 
 func TestTargetArgsCommand(t *testing.T) {
-	tg := Target{User: "mybox", Host: "127.0.0.1", Port: 2222}
-	require.Equal(t, []string{"mybox@127.0.0.1", "-p", "2222"}, tg.Args())
-	require.Equal(t, "ssh mybox@127.0.0.1 -p 2222", tg.Command())
+	tg := Target{Host: "mybox.sbx"}
+	require.Equal(t, []string{"mybox.sbx"}, tg.Args())
+	require.Equal(t, "ssh mybox.sbx", tg.Command())
 }
 
-func TestPortAndTargetFor(t *testing.T) {
-	c, argFile := newFakeSbx(t, 0, `{"key":"ssh.port","value":2222,"type":"int","source":"default","description":"port"}`, "")
-	ctx := context.Background()
-
-	p, err := Port(ctx, c)
-	require.NoError(t, err)
-	require.Equal(t, 2222, p)
-
-	tg, err := TargetFor(ctx, c, "mybox")
-	require.NoError(t, err)
-	require.Equal(t, Target{User: "mybox", Host: "127.0.0.1", Port: 2222}, tg)
-
-	args, _ := os.ReadFile(argFile)
-	require.Contains(t, string(args), "settings get --json ssh.port")
+func TestTargetFor(t *testing.T) {
+	require.Equal(t, Target{Host: "mybox.sbx"}, TargetFor("mybox"))
 }
 
 func TestEnableDisableArgs(t *testing.T) {
@@ -68,15 +56,9 @@ func TestEnableDisableArgs(t *testing.T) {
 	require.Contains(t, lines, "settings set feature.ssh false")
 }
 
-func TestPortEnabledWrapMalformedValue(t *testing.T) {
-	ctx := context.Background()
-
-	c, _ := newFakeSbx(t, 0, `{"key":"ssh.port","value":"notanint","type":"int","source":"default","description":""}`, "")
-	_, err := Port(ctx, c)
-	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
-
-	c, _ = newFakeSbx(t, 0, `{"key":"feature.ssh","value":"notanobject","type":"json","source":"default","description":""}`, "")
-	_, err = Enabled(ctx, c)
+func TestEnabledWrapMalformedValue(t *testing.T) {
+	c, _ := newFakeSbx(t, 0, `{"key":"feature.ssh","value":"notanobject","type":"json","source":"default","description":""}`, "")
+	_, err := Enabled(context.Background(), c)
 	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }
 

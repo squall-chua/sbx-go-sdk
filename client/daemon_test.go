@@ -12,14 +12,14 @@ import (
 
 func TestHealth(t *testing.T) {
 	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/health", r.URL.Path)
-		w.Write([]byte(`{"release":false,"status":"healthy","version":"v0.32.0 abc"}`))
+		require.Equal(t, "/daemon/health", r.URL.Path)
+		w.Write([]byte(`{"release":false,"status":"healthy","version":"v0.35.0 abc","api_version":"0.22.0"}`))
 	}))
 	c, _ := New(context.Background(), WithSocketPath(sock))
 	h, err := c.Health(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "healthy", h.Status)
-	require.Equal(t, "v0.32.0 abc", h.Version)
+	require.Equal(t, "v0.35.0 abc", h.Version)
 }
 
 // CheckVersion is now informational only (see daemon.go) — it still wraps the

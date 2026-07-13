@@ -13,10 +13,10 @@ func TestSetupArgs(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, Setup(ctx, c))
-	require.NoError(t, Setup(ctx, c, WithAlias("work"), WithRegenerate()))
+	require.NoError(t, Setup(ctx, c, WithAlias("work")))
 
 	args, _ := os.ReadFile(argFile)
 	lines := string(args)
 	require.Contains(t, lines, "ssh setup\n") // no options -> bare
-	require.Contains(t, lines, "ssh setup --alias work --regenerate")
+	require.Contains(t, lines, "ssh setup --alias work")
 }
