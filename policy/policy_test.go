@@ -6,14 +6,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/stretchr/testify/require"
 )
 
-func recordingClient(t *testing.T, argFile string) *client.Client {
+// fakeClient returns a client whose fake sbx binary records its args to argFile
+// and prints stdout. argFile may be "" if the test does not inspect args.
+func fakeClient(t *testing.T, argFile, stdout string) *client.Client {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "d.sock")
 	l, err := net.Listen("unix", sock)
@@ -21,11 +22,19 @@ func recordingClient(t *testing.T, argFile string) *client.Client {
 	srv := &http.Server{Handler: http.NewServeMux()}
 	go srv.Serve(l)
 	t.Cleanup(func() { srv.Close() })
+	if argFile == "" {
+		argFile = filepath.Join(t.TempDir(), "args.txt")
+	}
 	bin := filepath.Join(t.TempDir(), "sbx")
-	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+argFile+"\nexit 0\n"), 0o755))
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + argFile + "\ncat <<'EOF'\n" + stdout + "\nEOF\nexit 0\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
 	c, err := client.New(context.Background(), client.WithSocketPath(sock), client.WithBinaryPath(bin))
 	require.NoError(t, err)
 	return c
+}
+
+func recordingClient(t *testing.T, argFile string) *client.Client {
+	return fakeClient(t, argFile, "")
 }
 
 func TestPolicyMutations(t *testing.T) {
@@ -46,10 +55,7 @@ func TestPolicyMutations(t *testing.T) {
 	require.Contains(t, lines, "policy reset")
 }
 
-func TestPolicyListProfilesAndLog(t *testing.T) {
-	// List/Profiles: capturing runner returns the fake sbx stdout.
-	argFile := filepath.Join(t.TempDir(), "args.txt")
-	// fake sbx prints a banner to stdout so ListRaw returns non-empty text.
+func TestPolicyLog(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "d.sock")
 	l, err := net.Listen("unix", sock)
 	require.NoError(t, err)
@@ -59,10 +65,18 @@ func TestPolicyListProfilesAndLog(t *testing.T) {
 	})}
 	go srv.Serve(l)
 	t.Cleanup(func() { srv.Close() })
-	bin := filepath.Join(t.TempDir(), "sbx")
-	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+argFile+"\necho POLICY-TEXT\nexit 0\n"), 0o755))
-	c, err := client.New(context.Background(), client.WithSocketPath(sock), client.WithBinaryPath(bin))
+	c, err := client.New(context.Background(), client.WithSocketPath(sock))
 	require.NoError(t, err)
+
+	logs, err := Log(context.Background(), c)
+	require.NoError(t, err)
+	require.Len(t, logs.AllowedHosts, 1)
+	require.Equal(t, "api.github.com:443", logs.AllowedHosts[0].Host)
+}
+
+func TestListRawAndProfiles(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, "POLICY-TEXT")
 	ctx := context.Background()
 
 	raw, err := ListRaw(ctx, c, "s1")
@@ -71,59 +85,44 @@ func TestPolicyListProfilesAndLog(t *testing.T) {
 	data, _ := os.ReadFile(argFile)
 	require.Contains(t, string(data), "policy ls s1")
 
-	// "POLICY-TEXT" has no recognizable header → empty rule list, no error.
-	rules, err := List(ctx, c, "s1")
-	require.NoError(t, err)
-	require.Empty(t, rules)
-
 	prof, err := Profiles(ctx, c)
 	require.NoError(t, err)
 	require.Contains(t, prof, "POLICY-TEXT")
-
-	logs, err := Log(ctx, c)
-	require.NoError(t, err)
-	require.Len(t, logs.AllowedHosts, 1)
-	require.Equal(t, "api.github.com:443", logs.AllowedHosts[0].Host)
 }
 
-func TestParsePolicyList(t *testing.T) {
-	hdr := "PROVENANCE  APPLIES_TO  POLICY/RULE  TYPE     DECISION  RESOURCES"
-	ri := strings.Index(hdr, "RESOURCES") // RESOURCES column offset (56)
-	raw := "Starting sandboxd daemon...\n" +
-		"Daemon started (PID: 17849, socket: /x/sandboxd.sock)\n" +
-		hdr + "\n" +
-		"local       all         default-ai   network  allow     a.example.com:443\n" +
-		strings.Repeat(" ", ri) + "b.example.com:443\n" +
-		"\n" +
-		"local       web         block-bad    network  deny      evil.example.com:443\n"
+func TestListJSON(t *testing.T) {
+	json := `{"rules":[` +
+		`{"id":"default-ai","name":"default-ai","policy_id":"local-policy","scope":"global","applies_to":"all","resource_type":"network","decision":"allow","resources":["a.example.com:443","b.example.com:443"],"origin":"local","status":"active","editable":true},` +
+		`{"id":"block-bad","name":"block-bad","policy_id":"local-policy","scope":"global","applies_to":"web","resource_type":"network","decision":"deny","resources":["evil.example.com:443"],"origin":"local","status":"active","editable":true}` +
+		`]}`
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, json)
 
-	rules, err := parsePolicyList(raw)
+	rules, err := List(context.Background(), c, "")
 	require.NoError(t, err)
 	require.Len(t, rules, 2)
-
 	require.Equal(t, PolicyRule{
-		Provenance: "local",
-		AppliesTo:  "all",
-		Rule:       "default-ai",
-		Type:       "network",
-		Decision:   "allow",
-		Resources:  []string{"a.example.com:443", "b.example.com:443"},
+		ID: "default-ai", Name: "default-ai", PolicyID: "local-policy",
+		Scope: "global", AppliesTo: "all", ResourceType: "network", Decision: "allow",
+		Resources: []string{"a.example.com:443", "b.example.com:443"},
+		Origin:    "local", Status: "active", Editable: true,
 	}, rules[0])
-
-	require.Equal(t, "block-bad", rules[1].Rule)
 	require.Equal(t, "deny", rules[1].Decision)
 	require.Equal(t, []string{"evil.example.com:443"}, rules[1].Resources)
+
+	data, _ := os.ReadFile(argFile)
+	require.Contains(t, string(data), "policy ls --json")
 }
 
-func TestParsePolicyList_Empty(t *testing.T) {
-	rules, err := parsePolicyList("No policies found.\n")
+func TestListJSON_Empty(t *testing.T) {
+	c := fakeClient(t, "", `{"rules":[]}`)
+	rules, err := List(context.Background(), c, "")
 	require.NoError(t, err)
 	require.Empty(t, rules)
 }
 
-func TestParsePolicyList_Drift(t *testing.T) {
-	raw := "PROVENANCE  APPLIES_TO  RULE  TYPE  DECISION  RESOURCES\n" +
-		"local       all         x     net   allow     a:443\n"
-	_, err := parsePolicyList(raw)
+func TestListJSON_Drift(t *testing.T) {
+	c := fakeClient(t, "", "not json at all")
+	_, err := List(context.Background(), c, "")
 	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }

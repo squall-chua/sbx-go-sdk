@@ -7,17 +7,19 @@ import (
 	"time"
 )
 
-// Health is the /health response.
+// Health is the subset of the /daemon/health response used for liveness.
 type Health struct {
 	Release bool   `json:"release"`
 	Status  string `json:"status"`
 	Version string `json:"version"`
 }
 
-// Health returns daemon liveness.
+// Health returns daemon liveness. The standalone /health endpoint was removed in
+// sbx v0.35.0 (daemon api 0.22.0); /daemon/health is now the liveness signal and
+// its response is a superset of Health, so unmarshaling drops the extra fields.
 func (c *Client) Health(ctx context.Context) (*Health, error) {
 	var h Health
-	if err := c.tr.DoJSON(ctx, http.MethodGet, "/health", nil, &h); err != nil {
+	if err := c.tr.DoJSON(ctx, http.MethodGet, "/daemon/health", nil, &h); err != nil {
 		return nil, mapHTTPError("health", err)
 	}
 	return &h, nil
@@ -33,13 +35,13 @@ type versionResponse struct {
 }
 
 // ClientVersion is the sbx/daemon version this SDK was built/tested against.
-const ClientVersion = "v0.34.0"
+const ClientVersion = "v0.35.0"
 
 // TestedAPIVersion is the daemon REST api_version this SDK's wire types were
 // generated from and validated against (see DaemonHealthResponse.APIVersion). The
 // integration contract test (TestContract_VersionAlignment) fails when a live
 // daemon drifts from it, signalling a re-sync is due.
-const TestedAPIVersion = "0.16.0"
+const TestedAPIVersion = "0.22.0"
 
 // CheckVersion asks the daemon whether this client is compatible.
 // Returns "compatible", "incompatible", or "unknown".

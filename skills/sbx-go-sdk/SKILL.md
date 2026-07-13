@@ -55,13 +55,13 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log` |
 | Secrets | `secret.SetCustom/List/Remove` |
 | Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
-| SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.Port`, `ssh.TargetFor(ctx, c, name)` |
+| SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.TargetFor(name)` |
 
 Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`, `WithAutoStart`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
 `WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`.
 
-## Gotchas (verified against sandboxd v0.34.0)
+## Gotchas (verified against sandboxd v0.35.0)
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
@@ -72,16 +72,18 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   never fail the core CPU/mem snapshot.
 - **`SaveTemplate` requires a stopped sandbox** — call `sb.Stop(ctx)` first, or it fails on a
   non-interactive stop prompt.
-- **`policy.List` → `[]PolicyRule`, `secret.List` → `*Secrets`** by parsing the CLI table (no
-  `--json` upstream); drift returns `client.ErrUnexpectedFormat`. Use `policy.ListRaw` /
-  `secret.ListRaw` for raw text; `policy.Profiles` stays raw text.
+- **`policy.List` → `[]PolicyRule`** reads `sbx policy ls --json` (v0.35.0 dropped the flat
+  per-rule table); **`secret.List` → `*Secrets`** still parses the CLI table (no `--json`
+  upstream). Drift returns `client.ErrUnexpectedFormat`. Use `policy.ListRaw` / `secret.ListRaw`
+  for raw text; `policy.Profiles` stays raw text.
 - **`secret.SetCustom` is experimental** and exposes the value in host process listings — for
   headless agent credentials prefer `exec.WithEnv`.
 - **`settings`/`ssh` mutations are fire-and-forget shell-outs** — `settings.Set`,
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and
-  return before the daemon's ~5s hot-reload. `settings.Get/List` and `ssh.Port/Enabled`
+  return before the daemon's ~5s hot-reload. `settings.Get/List` and `ssh.Enabled`
   read via `--json`. `ssh.Enable` sets only `feature.ssh` (also needs
-  `platform.allowExperimentalFeatures`, default true).
+  `platform.allowExperimentalFeatures`, default true). SSH connects by hostname
+  (`ssh <name>.sbx`); v0.35.0 dropped the `ssh.port` loopback model.
 - **`cp` and `UnpublishPort` shell out** (no daemon REST path) — they need the `sbx` binary.
 - **A non-zero agent/command exit is `(code, nil)`** — only spawn/transport failures are errors.
   Check the returned code.
@@ -89,7 +91,7 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 - **`WithStrictVersion()` is unreliable on non-release daemons** — `POST /version` can report
   `"incompatible"` even for a version-matched daemon (`DaemonHealth.Release == false`). For a
   dependable check, compare `DaemonHealth.Version`/`APIVersion` to `client.ClientVersion` /
-  `client.TestedAPIVersion`. SDK is pinned to sbx v0.34.0 / api 0.16.0.
+  `client.TestedAPIVersion`. SDK is pinned to sbx v0.35.0 / api 0.22.0.
 
 ## Errors
 

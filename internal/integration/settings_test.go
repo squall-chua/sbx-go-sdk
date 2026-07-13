@@ -29,11 +29,10 @@ func TestContract_SettingsListGet(t *testing.T) {
 		require.NotEmpty(t, s.Source)
 	}
 
-	// ssh.port is a known int-typed setting; assert structure, not the value.
-	p, err := settings.Get(ctx, c, "ssh.port")
+	// ssh.autoCreate is a known bool-typed setting; assert structure, not the value.
+	p, err := settings.Get(ctx, c, "ssh.autoCreate")
 	require.NoError(t, err)
-	require.Equal(t, "ssh.port", p.Key)
-	var port int
-	require.NoError(t, json.Unmarshal(p.Value, &port))
-	require.Positive(t, port)
+	require.Equal(t, "ssh.autoCreate", p.Key)
+	var autoCreate bool
+	require.NoError(t, json.Unmarshal(p.Value, &autoCreate))
 }

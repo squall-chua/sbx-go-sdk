@@ -2,17 +2,19 @@
 
 Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.4 binary, with DWARF).
 
-- **Module:** `github.com/docker/sandboxes` `v0.34.0`
+- **Module:** `github.com/docker/sandboxes` `v0.35.0`
 - **Main package:** `github.com/docker/sandboxes/cli-plugin/cmd/sandboxes`
-- **Daemon API version:** `0.16.0` (build `2eae0c4fc3894475da3318615f69783b0e7be747`, 2026-06-26)
+- **Daemon API version:** `0.22.0` (build `01e01520456e4126a9653471e7072e4d9b280321`, 2026-07-13)
 - **What it is:** Docker Sandboxes — isolated micro-VM sandboxes for AI coding agents.
   Shipped both as a standalone `sbx` binary and as a `docker sandboxes` CLI plugin.
 - **Single-binary model (like docker/dockerd):** the same binary is both the CLI
   *and* the `sandboxd` daemon. The CLI re-execs itself to start the daemon.
 
-> Refreshed for **v0.34.0**: the header facts and the §1 command tree were re-verified
-> against the installed binary. §2–§3 (architecture, REST surface) reflect the original
-> v0.32.0 recon; the SDK-exercised REST endpoints are re-confirmed live at v0.34.0 by the
+> Refreshed for **v0.35.0** (daemon api jumped `0.16.0` → `0.22.0`): the header facts were
+> re-verified against the installed binary. Notable REST change: the standalone `GET /health`
+> endpoint was **removed** (now `404`); `/daemon/health` is the liveness signal. `SandboxInfo`
+> gained a `credential_sources` field (`map[string]{source,type}`). §2 (architecture) reflects the
+> original v0.32.0 recon; the SDK-exercised REST endpoints are re-confirmed live at v0.35.0 by the
 > `internal/integration` suite.
 
 ---
@@ -142,7 +144,7 @@ restart.
 
 ### Auth
 - Local CLI ⇄ daemon over the unix socket: not bearer-authenticated (filesystem
-  perms on the socket are the boundary); `/health`, `/daemon/info`, `/sandbox`
+  perms on the socket are the boundary); `/daemon/health`, `/daemon/info`, `/sandbox`
   answer without a token.
 - Outbound to Docker cloud / gateway and to in-sandbox MCP/agents uses
   `Authorization: Bearer <token>` (Docker login token seeded from
@@ -157,10 +159,9 @@ Base: `http://localhost` over the unix socket. Echo router. `{name}` = sandbox i
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET  | `/health` | liveness `{release,status,version}` |
 | POST | `/version` | client/daemon version compatibility check |
 | GET  | `/daemon/info` | `{api_socket, docker_socket}` |
-| GET  | `/daemon/health` | `{api_version, revision, release, status, version}` |
+| GET  | `/daemon/health` | liveness `{api_version, revision, release, status, version}` (replaces the removed `/health`) |
 | GET  | `/daemon/loglevel` | `{general, proxy}` log levels |
 | POST | `/daemon/loglevel/set` | set a category's log level |
 | GET  | `/sandbox` | list sandboxes |
@@ -197,7 +198,7 @@ go tool nm /usr/bin/sbx | grep docker/sandboxes  # symbol map
 sbx --help ; sbx <cmd> --help                    # cobra command tree
 sbx -D daemon status                             # prints socket + log paths
 SOCK=~/.local/state/sandboxes/sandboxes/sandboxd/sandboxd.sock
-curl -s --unix-socket "$SOCK" http://localhost/health
+curl -s --unix-socket "$SOCK" http://localhost/daemon/health
 curl -s --unix-socket "$SOCK" http://localhost/daemon/info
 curl -s --unix-socket "$SOCK" http://localhost/sandbox
 curl -s -X OPTIONS -D- -o/dev/null --unix-socket "$SOCK" http://localhost/sandbox  # Allow: header

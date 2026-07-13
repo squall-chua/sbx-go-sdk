@@ -12,8 +12,14 @@
 // serializes it as a JSON object (map of label key -> value), so it is typed
 // `*map[string]string` here.
 //
-// Re-running dwarfgen will reintroduce the empty structs and re-widen Labels to
-// *string; re-apply these edits if you regenerate.
+// SandboxInfo.CredentialSources: DWARF reports it as
+// `map[string]CredentialSourceInfo`, but dwarfgen has no map case so it
+// collapses the value type and emits `*CredentialSourceInfo`; it is widened
+// back to `*map[string]CredentialSourceInfo` here (keyed by service name).
+//
+// Re-running dwarfgen will reintroduce the empty structs, re-widen Labels to
+// *string, and re-collapse CredentialSources; re-apply these edits if you
+// regenerate.
 
 package api
 
@@ -23,19 +29,20 @@ var _ = time.Time{}
 
 // SandboxInfo
 type SandboxInfo struct {
-	AdditionalWorkspaces *[]WorkspaceMount  `json:"additional_workspaces,omitempty"`
-	Agent                *string            `json:"agent,omitempty"`
-	CreatedAt            *time.Time         `json:"created_at,omitempty"`
-	Id                   string             `json:"id"`
-	Labels               *map[string]string `json:"labels,omitempty"`
-	MountPolicyDenied    *bool              `json:"mount_policy_denied,omitempty"`
-	Name                 string             `json:"name"`
-	Ports                *[]PublishedPort   `json:"ports,omitempty"`
-	Profile              *string            `json:"profile,omitempty"`
-	SourceRepoDir        *string            `json:"source_repo_dir,omitempty"`
-	Status               string             `json:"status"`
-	Workspace            string             `json:"workspace"`
-	Worktree             *SandboxWorktree   `json:"worktree,omitempty"`
+	AdditionalWorkspaces *[]WorkspaceMount                `json:"additional_workspaces,omitempty"`
+	Agent                *string                          `json:"agent,omitempty"`
+	CreatedAt            *time.Time                       `json:"created_at,omitempty"`
+	CredentialSources    *map[string]CredentialSourceInfo `json:"credential_sources,omitempty"`
+	Id                   string                           `json:"id"`
+	Labels               *map[string]string               `json:"labels,omitempty"`
+	MountPolicyDenied    *bool                            `json:"mount_policy_denied,omitempty"`
+	Name                 string                           `json:"name"`
+	Ports                *[]PublishedPort                 `json:"ports,omitempty"`
+	Profile              *string                          `json:"profile,omitempty"`
+	SourceRepoDir        *string                          `json:"source_repo_dir,omitempty"`
+	Status               string                           `json:"status"`
+	Workspace            string                           `json:"workspace"`
+	Worktree             *SandboxWorktree                 `json:"worktree,omitempty"`
 }
 
 // WorkspaceMount
@@ -72,6 +79,12 @@ type HealthResponse struct {
 type DaemonInfo struct {
 	ApiSocket    string  `json:"api_socket"`
 	DockerSocket *string `json:"docker_socket,omitempty"`
+}
+
+// CredentialSourceInfo
+type CredentialSourceInfo struct {
+	Source string `json:"source"`
+	Type   string `json:"type"`
 }
 
 // RuntimeVersions

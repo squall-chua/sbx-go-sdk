@@ -7,21 +7,18 @@ import (
 )
 
 type setupConfig struct {
-	alias      string
-	regenerate bool
+	alias string
 }
 
 // Option configures Setup.
 type Option func(*setupConfig)
 
-// WithAlias sets the ssh_config Host alias to write (default "sbx" upstream).
+// WithAlias sets the ssh_config Host pattern to write (default "*.sbx" upstream).
 func WithAlias(alias string) Option { return func(c *setupConfig) { c.alias = alias } }
 
-// WithRegenerate rotates the managed SSH key.
-func WithRegenerate() Option { return func(c *setupConfig) { c.regenerate = true } }
-
 // Setup provisions the local SSH client for the sandbox endpoint (`sbx ssh setup`):
-// it writes an ~/.ssh/config alias + a dedicated managed key. Idempotent and
+// it writes an ~/.ssh/config "Host *.sbx" block + known_hosts. No client key is
+// needed (auth is the daemon socket + Docker login). Idempotent and
 // non-interactive; safe to re-run.
 func Setup(ctx context.Context, c *client.Client, opts ...Option) error {
 	var cfg setupConfig
@@ -31,9 +28,6 @@ func Setup(ctx context.Context, c *client.Client, opts ...Option) error {
 	args := []string{"ssh", "setup"}
 	if cfg.alias != "" {
 		args = append(args, "--alias", cfg.alias)
-	}
-	if cfg.regenerate {
-		args = append(args, "--regenerate")
 	}
 	r, err := c.Runner()
 	if err != nil {

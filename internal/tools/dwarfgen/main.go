@@ -27,6 +27,7 @@ var roots = []string{
 	"github.com/docker/sandboxes/sandboxapi.SandboxWorktree",
 	"github.com/docker/sandboxes/sandboxapi.HealthResponse",
 	"github.com/docker/sandboxes/sandboxapi.DaemonInfo",
+	"github.com/docker/sandboxes/sandboxapi.CredentialSourceInfo",
 }
 
 func main() {
