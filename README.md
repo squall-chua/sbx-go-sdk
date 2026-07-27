@@ -701,9 +701,22 @@ Verified live against `sandboxd` v0.37.0:
 - **`secret.SetCustom` is experimental** and exposes the value via the process list.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the
   value to the child process's stdin rather than passing it as a CLI argument, so unlike
-  `SetCustom` it does not appear in the host process list. One open question: upstream's `--help`
-  documents `--force` as applying "when `--token` is used", and `SetToken` no longer passes
-  `--token`, so whether `WithOverwrite()` still takes effect on that path is unconfirmed.
+  `SetCustom` it does not appear in the host process list. Confirmed by a live run: `--force`
+  **does** work on this stdin path, despite upstream's `--help` claiming it applies only "when
+  `--token` is used".
+- **`secret.SetToken`, `SetRegistry` and `Import` reject an existing entry** rather than
+  overwriting it. Without `--force`, `sbx secret set`/`secret import` on an entry that already
+  exists in the target scope prompts for confirmation; on non-interactive stdin that prompt reads
+  EOF, cancels, and **exits 0 having stored nothing**. All three now check for an existing entry
+  before invoking the CLI and return an error in that case instead. Pass `WithOverwrite()`
+  (`SetToken`/`SetRegistry`) or `WithOverwriteExisting()` (`Import`) to opt into replacing it.
+- **Two related paths may have the same silent-success shape, unverified.** `sbx` has a second
+  overwrite prompt — `"%s OAuth token already exists. Overwrite? (y/N): "` — for OAuth-configured
+  services; if `secret ls` doesn't surface those as rows, `SetToken` against such a service could
+  still reach that prompt and exit 0 silently. `SetCustom` has no pre-flight check at all and
+  pipes nothing to stdin, so `set-custom` against an existing entry may have the same shape.
+  Neither can be confirmed without running `sbx secret` against real credentials, so both are
+  recorded as known limitations rather than fixed here.
 - **`settings`/`ssh` mutations are fire-and-forget** — `settings.Set/Unset` and
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and return before
   the daemon's ~5s hot-reload; reads (`settings.Get/List`, `ssh.Enabled`) use `--json`.

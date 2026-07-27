@@ -81,6 +81,10 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   headless agent credentials prefer `exec.WithEnv`. `secret.SetToken`/`SetRegistry` do not have
   this problem: both write the secret to the child process's stdin instead of an argument, so it
   never appears in the process list.
+- **`SetToken`/`SetRegistry`/`Import` error on an existing entry** instead of silently no-op'ing —
+  without `--force`, sbx's own overwrite prompt reads EOF from non-interactive stdin and exits 0
+  having stored nothing. Pass `WithOverwrite()`/`WithOverwriteExisting()` to replace. `SetCustom`
+  has no such check.
 - **`settings`/`ssh` mutations are fire-and-forget shell-outs** — `settings.Set`,
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and
   return before the daemon's ~5s hot-reload. `settings.Get/List` and `ssh.Enabled`
