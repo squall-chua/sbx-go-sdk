@@ -50,6 +50,18 @@ _Avoid_: connection, stream, pipe
 A saved sandbox image that new sandboxes can be created from. Matches `sbx template`.
 _Avoid_: image, snapshot, base
 
+**Kit**:
+A declarative YAML artifact that extends a sandbox's agent with extra credentials, network
+policy, environment variables, startup commands, and files. Installed from a directory, ZIP,
+or OCI reference. EXPERIMENTAL upstream.
+_Avoid_: plugin, extension, bundle, addon
+
+**Skills Store**:
+The daemon-managed directory of agent skill folders, seeded from the host by `sbx skills
+import` and mounted into sandboxes that have not opted out. Survives sandbox deletion;
+cleared by `sbx reset`. EXPERIMENTAL upstream.
+_Avoid_: skill cache, shared skills, skill registry
+
 **Daemon (`sandboxd`)**:
 The local background process the SDK talks to over a unix socket. Same binary as the `sbx`
 CLI. Owns all sandboxes.
@@ -72,14 +84,20 @@ requests to a target host (`sbx secret set-custom`). EXPERIMENTAL upstream.
 _Avoid_: injected secret, env secret
 
 **Policy Rule**:
-A single network allow/deny entry shown by `sbx policy ls` — a provenance, scope, decision,
-and the host resources it covers.
+A single allow/deny entry shown by `sbx policy ls` — a source, scope, decision, resource
+type, and the resources it covers.
 _Avoid_: rule, ACL, firewall rule
 
-**Provenance**:
-Where a policy rule comes from — `local` (set on this host) versus remote governance. Shown
-as the `PROVENANCE` column of `sbx policy ls`.
-_Avoid_: source, origin, owner
+**Source**:
+Where a policy rule comes from: `local` (set on this host), `org` (remote governance), or
+`kit` (contributed by an installed kit). Shown as the `SOURCE` column of `sbx policy ls`.
+_Avoid_: provenance, origin, owner
+
+**Authorization**:
+The outcome of evaluating the whole policy against one access request (`sbx policy check`) —
+allowed or denied, with the deciding rule and, for a denial, whether a deny rule matched or
+nothing matched at all (an *implicit* deny). Distinct from a Policy Rule's own `decision`.
+_Avoid_: decision, verdict, check result
 
 **Setting**:
 A persistent daemon configuration key managed by `sbx settings` (e.g. `feature.ssh`,
