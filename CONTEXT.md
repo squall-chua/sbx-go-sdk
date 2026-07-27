@@ -51,9 +51,11 @@ A saved sandbox image that new sandboxes can be created from. Matches `sbx templ
 _Avoid_: image, snapshot, base
 
 **Kit**:
-A declarative YAML artifact that extends a sandbox's agent with extra credentials, network
-policy, environment variables, startup commands, and files. Installed from a directory, ZIP,
-or OCI reference. EXPERIMENTAL upstream.
+A declarative YAML artifact (`spec.yaml` plus an optional `files/` directory) that
+contributes configuration to a sandbox. Two kinds: a **mixin** kit adds credentials, network
+policy, environment variables, startup commands and files to an existing sandbox; a
+**sandbox** kit instead supplies the base image the sandbox is built from. Installed from a
+directory, ZIP, git repository, or OCI reference. EXPERIMENTAL upstream.
 _Avoid_: plugin, extension, bundle, addon
 
 **Skills Store**:

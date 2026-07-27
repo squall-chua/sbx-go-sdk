@@ -43,3 +43,12 @@ stay a subset of any eventual upstream JSON.
   rest of `internal/integration`), so table drift is caught in that suite, not by default CI.
 - `policy.Profiles` stays raw text — remote governance produces no rows in tested
   environments, so its layout is unverified and out of scope until real data exists.
+
+## Ledger — where the SDK reads `sbx` output
+
+Every site that depends on the shape of human-rendered output, so drift has one place to check.
+
+| Site | What it reads | Why not something else |
+|---|---|---|
+| `secret.List` | the rendered table, via `internal/coltable` | no `--json`, no REST path |
+| `kit.Validate` | a leading `INVALID:` on stderr, mapped to `client.ErrKitRejected` | `sbx kit validate` exits 1 for both a refused artifact and a missing path, so the exit code cannot tell them apart; only the prefix can. Verified 2026-07-27 against sbx v0.37.0. Note the marker covers a source refused by `kit.allowedSources` as well as a malformed `spec.yaml` — hence the sentinel is named for rejection, not invalidity. |
