@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -33,11 +34,13 @@ func Extract(r io.Reader, destDir string) error {
 	}
 	defer root.Close()
 
+	dirModes := map[string]os.FileMode{}
+
 	tr := tar.NewReader(r)
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
-			return nil
+			return applyDirModes(root, dirModes)
 		}
 		if err != nil {
 			return err
@@ -53,15 +56,10 @@ func Extract(r io.Reader, destDir string) error {
 
 		switch h.Typeflag {
 		case tar.TypeDir:
-			if err := root.MkdirAll(name, mode); err != nil {
+			if err := root.MkdirAll(name, 0o755); err != nil {
 				return err
 			}
-			// mkParents may have already created this at 0o755, and MkdirAll is a
-			// no-op on an existing dir, so restore the recorded mode explicitly —
-			// as writeFile does for files.
-			if err := root.Chmod(name, mode); err != nil {
-				return err
-			}
+			dirModes[name] = mode
 		case tar.TypeReg:
 			if err := mkParents(root, name); err != nil {
 				return err
@@ -113,6 +111,26 @@ func checkSymlinkTarget(entry, target string) error {
 	resolved := path.Clean(path.Join(path.Dir(entry), target))
 	if resolved == ".." || strings.HasPrefix(resolved, "../") {
 		return fmt.Errorf("invalid symlink %q -> %q: escapes destination", entry, target)
+	}
+	return nil
+}
+
+// applyDirModes restores recorded directory modes after the whole stream is
+// extracted. Applying them inline would lock a directory before later entries
+// are written into it: a "dir/" entry at 0o500 sitting between two of its own
+// file entries would abort the extraction.
+//
+// Deepest first, so a child is reached before its parent loses the execute bit.
+func applyDirModes(root *os.Root, modes map[string]os.FileMode) error {
+	names := make([]string, 0, len(modes))
+	for n := range modes {
+		names = append(names, n)
+	}
+	sort.Slice(names, func(i, j int) bool { return len(names[i]) > len(names[j]) })
+	for _, n := range names {
+		if err := root.Chmod(n, modes[n]); err != nil {
+			return err
+		}
 	}
 	return nil
 }

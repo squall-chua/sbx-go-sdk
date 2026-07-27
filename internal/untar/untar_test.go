@@ -125,6 +125,55 @@ func TestExtract_DirModeAppliedWhenDirEntryFollowsItsContents(t *testing.T) {
 	require.Equal(t, os.FileMode(0o644), ffi.Mode().Perm())
 }
 
+func TestExtract_RestrictiveDirModeDoesNotBlockLaterEntries(t *testing.T) {
+	// A "dir/" entry at 0o500 arriving between two of its own file entries
+	// must not lock the directory before the later entry is written.
+	dst := t.TempDir()
+	dirPath := filepath.Join(dst, "dir")
+	t.Cleanup(func() { _ = os.Chmod(dirPath, 0o755) })
+
+	err := Extract(buildTar(t,
+		entry{name: "dir/file1.txt", mode: 0o644, body: "one"},
+		entry{name: "dir/", mode: 0o500, typeflag: tar.TypeDir},
+		entry{name: "dir/file2.txt", mode: 0o644, body: "two"},
+	), dst)
+	require.NoError(t, err)
+
+	b1, err := os.ReadFile(filepath.Join(dirPath, "file1.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "one", string(b1))
+
+	b2, err := os.ReadFile(filepath.Join(dirPath, "file2.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "two", string(b2))
+
+	fi, err := os.Stat(dirPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o500), fi.Mode().Perm())
+}
+
+func TestExtract_RestrictiveDirModeAppliedBeforeContents(t *testing.T) {
+	// A "dir/" entry at 0o500 arriving before its own contents must not
+	// block writing those contents either.
+	dst := t.TempDir()
+	dirPath := filepath.Join(dst, "dir")
+	t.Cleanup(func() { _ = os.Chmod(dirPath, 0o755) })
+
+	err := Extract(buildTar(t,
+		entry{name: "dir/", mode: 0o500, typeflag: tar.TypeDir},
+		entry{name: "dir/file.txt", mode: 0o644, body: "f"},
+	), dst)
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(dirPath, "file.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "f", string(b))
+
+	fi, err := os.Stat(dirPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o500), fi.Mode().Perm())
+}
+
 func TestExtract_FileBeforeItsParentDirEntry(t *testing.T) {
 	// The daemon is not required to emit parent directories first.
 	dst := t.TempDir()
