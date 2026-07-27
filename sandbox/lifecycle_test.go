@@ -48,3 +48,29 @@ func TestCreate_OwnsNameAndHydrates(t *testing.T) {
 	require.True(t, sb.IsRunning())
 	_ = sawCreate
 }
+
+func TestRemove_DefaultSendsNoForceParam(t *testing.T) {
+	var gotForce, gotMethod string
+	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotForce = r.URL.Query().Get("force")
+		w.WriteHeader(http.StatusOK)
+	}))
+	sb := NewForTest(c, "s1")
+
+	require.NoError(t, sb.Remove(context.Background()))
+	require.Equal(t, http.MethodDelete, gotMethod)
+	require.Empty(t, gotForce)
+}
+
+func TestRemove_WithForceSetsQueryParam(t *testing.T) {
+	var gotForce string
+	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotForce = r.URL.Query().Get("force")
+		w.WriteHeader(http.StatusOK)
+	}))
+	sb := NewForTest(c, "s1")
+
+	require.NoError(t, sb.Remove(context.Background(), WithForce()))
+	require.Equal(t, "true", gotForce)
+}

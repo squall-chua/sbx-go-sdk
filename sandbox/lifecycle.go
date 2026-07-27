@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -83,10 +84,30 @@ func (s *Sandbox) Stop(ctx context.Context) error {
 	return s.post(ctx, "/stop")
 }
 
+type removeConfig struct{ force bool }
+
+// RemoveOption configures Remove.
+type RemoveOption func(*removeConfig)
+
+// WithForce removes the sandbox even when it is in use — for example with an
+// open SSH connection (`?force=true`, matching `sbx rm --force`).
+//
+// A merely running sandbox does not need this; a plain Remove stops and deletes
+// it. Force is for an active session, which became reachable in v0.37.0 now
+// that feature.ssh defaults to enabled.
+func WithForce() RemoveOption { return func(c *removeConfig) { c.force = true } }
+
 // Remove deletes the sandbox (REST DELETE; no confirmation prompt).
-func (s *Sandbox) Remove(ctx context.Context) error {
-	err := s.cli.Transport().DoJSON(ctx, http.MethodDelete, "/sandbox/"+s.info.Name, nil, nil)
-	if err != nil {
+func (s *Sandbox) Remove(ctx context.Context, opts ...RemoveOption) error {
+	var cfg removeConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	route := "/sandbox/" + s.info.Name
+	if cfg.force {
+		route += "?" + url.Values{"force": {"true"}}.Encode()
+	}
+	if err := s.cli.Transport().DoJSON(ctx, http.MethodDelete, route, nil, nil); err != nil {
 		return client.MapError("remove", err)
 	}
 	return nil
