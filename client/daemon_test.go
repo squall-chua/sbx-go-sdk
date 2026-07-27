@@ -36,6 +36,21 @@ func TestCheckVersion(t *testing.T) {
 	require.Equal(t, "incompatible", res)
 }
 
+func TestCheckVersion_ReportsEndpointRemoval(t *testing.T) {
+	// POST /version was removed in sbx v0.37.0 and answers 404 on every verb.
+	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"message":"Not Found"}`))
+	}))
+	c, err := New(context.Background(), WithSocketPath(sock))
+	require.NoError(t, err)
+
+	_, err = c.CheckVersion(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "v0.37.0",
+		"the error should name the release that removed the endpoint")
+}
+
 // WithStrictVersion verifies compatibility via /daemon/health's api_version, NOT
 // the dead /version endpoint. Matching TestedAPIVersion accepts the daemon.
 func TestStrictVersion_Match(t *testing.T) {
