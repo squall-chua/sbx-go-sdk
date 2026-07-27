@@ -142,6 +142,20 @@ func Profiles(ctx context.Context, c *client.Client) (string, error) {
 	return capture(ctx, c, "policy", "profile", "ls")
 }
 
+// InspectRaw returns the human-rendered detail for a policy or rule
+// (`sbx policy inspect <policy-or-rule>`). The selector may be a policy ID,
+// policy name, rule ID, or rule name; use List to find them.
+//
+// The output is unparsed on purpose: `sbx policy inspect` has no --json flag and
+// no REST path, so any parser here would be pinned to a human layout that is
+// free to change. Callers that need structure should use List.
+func InspectRaw(ctx context.Context, c *client.Client, selector string) (string, error) {
+	if selector == "" {
+		return "", errors.New("policy inspect: selector must not be empty")
+	}
+	return capture(ctx, c, "policy", "inspect", selector)
+}
+
 // LogEntry is one allowed/blocked host record from the proxy.
 type LogEntry struct {
 	Host       string `json:"host"`

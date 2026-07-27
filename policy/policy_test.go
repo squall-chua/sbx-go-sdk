@@ -155,3 +155,22 @@ func TestList_MalformedJSONReturnsErrUnexpectedFormat(t *testing.T) {
 	_, err := List(context.Background(), c, "")
 	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }
+
+func TestInspectRaw_PassesSelectorThrough(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, "Policy: Developer access")
+
+	out, err := InspectRaw(context.Background(), c, "Developer access")
+	require.NoError(t, err)
+	require.Contains(t, out, "Developer access")
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "policy inspect Developer access")
+}
+
+func TestInspectRaw_EmptySelectorIsRejected(t *testing.T) {
+	c := recordingClient(t, filepath.Join(t.TempDir(), "args.txt"))
+	_, err := InspectRaw(context.Background(), c, "")
+	require.Error(t, err)
+}
