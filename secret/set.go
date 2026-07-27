@@ -49,7 +49,7 @@ func SetToken(ctx context.Context, c *client.Client, scope, service, token strin
 	if err != nil {
 		return err
 	}
-	_, err = r.CaptureStdin(ctx, strings.NewReader(token), nil, args...)
+	_, err = r.CaptureStdin(ctx, strings.NewReader(token+"\n"), nil, args...)
 	return err
 }
 
@@ -95,6 +95,6 @@ func SetRegistry(ctx context.Context, c *client.Client, scope string, cred Regis
 	if err != nil {
 		return err
 	}
-	_, err = r.CaptureStdin(ctx, strings.NewReader(cred.Password), nil, args...)
+	_, err = r.CaptureStdin(ctx, strings.NewReader(cred.Password+"\n"), nil, args...)
 	return err
 }

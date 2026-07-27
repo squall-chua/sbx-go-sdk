@@ -128,7 +128,19 @@ func TestList_UsesRESTAndAlwaysRequestsAllTypes(t *testing.T) {
 	require.Empty(t, gotSandbox)
 
 	require.Len(t, rules, 2)
-	require.Equal(t, "network", rules[0].ResourceType)
+	require.Equal(t, PolicyRule{
+		ID:           "r1",
+		Name:         "net",
+		PolicyID:     "local-policy",
+		Scope:        "global",
+		AppliesTo:    "all",
+		ResourceType: "network",
+		Decision:     "allow",
+		Resources:    []string{"a:443"},
+		Origin:       "local",
+		Status:       "active",
+		Editable:     true,
+	}, rules[0], "every PolicyRule field must decode, not just ResourceType")
 	require.Equal(t, "filesystem:read", rules[1].ResourceType,
 		"filesystem rules must survive the migration")
 }
@@ -141,10 +153,11 @@ func TestList_ScopeBecomesSandboxQueryParam(t *testing.T) {
 		w.Write([]byte(`{"rules":[]}`))
 	}))
 
-	_, err := List(context.Background(), c, "my-sandbox")
+	rules, err := List(context.Background(), c, "my-sandbox")
 	require.NoError(t, err)
 	require.Equal(t, "my-sandbox", gotSandbox)
 	require.Equal(t, "all", gotType)
+	require.Empty(t, rules)
 }
 
 func TestList_MalformedJSONReturnsErrUnexpectedFormat(t *testing.T) {

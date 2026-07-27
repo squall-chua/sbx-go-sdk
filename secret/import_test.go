@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImport_NamedServiceIsNonInteractive(t *testing.T) {
+func TestImport_NamedServiceOmitsAllFlag(t *testing.T) {
 	dir := t.TempDir()
 	argFile := filepath.Join(dir, "args.txt")
 	c := stdinRecordingClient(t, argFile, filepath.Join(dir, "stdin.txt"))

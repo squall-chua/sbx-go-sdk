@@ -113,7 +113,7 @@ func List(ctx context.Context, c *client.Client, scope string) ([]PolicyRule, er
 	}
 	if err := c.Transport().DoJSON(ctx, http.MethodGet, route, nil, &resp); err != nil {
 		if isDecodeError(err) {
-			return nil, fmt.Errorf("policy list: %w: %w", client.ErrUnexpectedFormat, err)
+			return nil, fmt.Errorf("policy-list: %w: %w", client.ErrUnexpectedFormat, err)
 		}
 		return nil, client.MapError("policy-list", err)
 	}

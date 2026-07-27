@@ -42,6 +42,10 @@ func TestContract_VersionAlignment(t *testing.T) {
 
 	// DaemonHealth.Version / APIVersion are the authoritative drift signals: they are
 	// the strings the SDK's wire types and shell-out flags were pinned against.
+	// POST /version, the daemon's own compatibility verdict, was removed in v0.37.0
+	// (404 on every verb) and client.CheckVersion that wrapped it is deprecated —
+	// version alignment is checked against /daemon/health's api_version alone, which
+	// is also what WithStrictVersion() compares.
 	dh, err := c.DaemonHealth(ctx)
 	require.NoError(t, err)
 
@@ -50,15 +54,5 @@ func TestContract_VersionAlignment(t *testing.T) {
 	}
 	if dh.APIVersion != client.TestedAPIVersion {
 		report("daemon api_version %q != tested client.TestedAPIVersion %q", dh.APIVersion, client.TestedAPIVersion)
-	}
-
-	// The daemon's own POST /version verdict is informational only — it is NOT a
-	// reliable drift signal. Non-release daemons (DaemonHealth.Release == false)
-	// have been observed returning "incompatible" for every client string, including
-	// their own exact version. WithStrictVersion() rejects such daemons; this is why
-	// the SDK's default is lenient. Log it for context but never fail on it.
-	if res, err := c.CheckVersion(ctx); err == nil {
-		t.Logf("daemon POST /version verdict for client %q: %q (informational; release=%t)",
-			client.ClientVersion, res, dh.Release)
 	}
 }
