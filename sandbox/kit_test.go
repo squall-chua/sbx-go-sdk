@@ -2,32 +2,12 @@ package sandbox
 
 import (
 	"context"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/stretchr/testify/require"
 )
-
-// kitFakeClient returns a client whose fake sbx binary records its args.
-func kitFakeClient(t *testing.T, argFile string) *client.Client {
-	t.Helper()
-	sock := filepath.Join(t.TempDir(), "d.sock")
-	l, err := net.Listen("unix", sock)
-	require.NoError(t, err)
-	srv := &http.Server{Handler: http.NewServeMux()}
-	go srv.Serve(l)
-	t.Cleanup(func() { srv.Close() })
-	bin := filepath.Join(t.TempDir(), "sbx")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + argFile + "\nexit 0\n"
-	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
-	c, err := client.New(context.Background(), client.WithSocketPath(sock), client.WithBinaryPath(bin))
-	require.NoError(t, err)
-	return c
-}
 
 // The daemon records the kit list verbatim and re-resolves it on every later
 // add, resolving a relative path against its own working directory rather
@@ -58,7 +38,7 @@ func TestAbsLocal_NonPathReferencesPassThroughUntouched(t *testing.T) {
 
 func TestAddKit_PassesSandboxNameThenReference(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := kitFakeClient(t, argFile)
+	c := clientWithRecordingSbx(t, argFile)
 	sb := NewForTest(c, "my-sandbox")
 
 	require.NoError(t, sb.AddKit(context.Background(), "ghcr.io/org/kit:1.0"))
@@ -70,7 +50,7 @@ func TestAddKit_PassesSandboxNameThenReference(t *testing.T) {
 
 func TestAddKit_AbsolutisesALocalDirectory(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := kitFakeClient(t, argFile)
+	c := clientWithRecordingSbx(t, argFile)
 	sb := NewForTest(c, "my-sandbox")
 
 	dir := t.TempDir()
