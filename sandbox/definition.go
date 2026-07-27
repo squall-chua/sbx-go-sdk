@@ -17,6 +17,7 @@ type Definition struct {
 	template   string
 	clone      bool
 	publish    []string // -p specs, applied at create time
+	kits       []string // --kit refs, applied at create time
 	agentArgs  []string
 	stdin      io.Reader
 	stdout     io.Writer
@@ -59,6 +60,9 @@ func (d *Definition) toCreateArgs() ([]string, error) {
 	}
 	for _, spec := range d.publish {
 		args = append(args, "-p", spec)
+	}
+	for _, ref := range d.kits {
+		args = append(args, "--kit", absLocal(ref))
 	}
 	if d.clone {
 		args = append(args, "--clone")

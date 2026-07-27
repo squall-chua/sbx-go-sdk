@@ -57,3 +57,22 @@ func WithStdio(in io.Reader, out, err io.Writer) Option {
 func WithPublish(specs ...string) Option {
 	return func(d *Definition) { d.publish = append(d.publish, specs...) }
 }
+
+// WithKit attaches kit artifacts at creation time (`--kit`, EXPERIMENTAL
+// upstream). Each ref may be a local directory, a ZIP file, or an OCI
+// reference. May be called once with several refs or repeatedly.
+//
+// A local path is made absolute when the argument vector is built; the daemon
+// records the kit list verbatim and resolves a relative path against its own
+// working directory, which would record one that does not exist.
+//
+// Prefer WithKit over AddKit for anything beyond a trivial kit: AddKit
+// refuses any kit declaring credentials, publishedPorts, volumes,
+// commands.startup or commands.initFiles, whereas creation applies all of
+// them.
+//
+// Refs are otherwise passed straight through without validation; the CLI is
+// the authority on the grammar and rejects a malformed ref itself.
+func WithKit(refs ...string) Option {
+	return func(d *Definition) { d.kits = append(d.kits, refs...) }
+}

@@ -1,6 +1,9 @@
 package sandbox
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -54,4 +57,44 @@ func TestWithPublish_AbsentWhenUnset(t *testing.T) {
 	args, err := d.toCreateArgs()
 	require.NoError(t, err)
 	require.NotContains(t, args, "-p")
+}
+
+func TestWithKit_EmitsRepeatedFlagOnCreate(t *testing.T) {
+	d := newDefinition(
+		WithAgent("shell"),
+		WithWorkspace("/ws"),
+		WithKit("ghcr.io/org/a:1.0"),
+		WithKit("ghcr.io/org/b:1.0", "ghcr.io/org/c:1.0"),
+	)
+
+	args, err := d.toCreateArgs()
+	require.NoError(t, err)
+
+	joined := strings.Join(args, " ")
+	require.Contains(t, joined, "--kit ghcr.io/org/a:1.0")
+	require.Contains(t, joined, "--kit ghcr.io/org/b:1.0")
+	require.Contains(t, joined, "--kit ghcr.io/org/c:1.0")
+}
+
+func TestWithKit_AbsentWhenUnset(t *testing.T) {
+	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"))
+	args, err := d.toCreateArgs()
+	require.NoError(t, err)
+	require.NotContains(t, args, "--kit")
+}
+
+// create --kit records the kit list the same way kit add does, so a relative
+// path is resolved against the daemon's working directory and recorded wrong.
+func TestWithKit_AbsolutisesALocalDirectory(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "mykit"), 0o755))
+	t.Chdir(dir)
+
+	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"), WithKit("./mykit"))
+	args, err := d.toCreateArgs()
+	require.NoError(t, err)
+
+	joined := strings.Join(args, " ")
+	require.NotContains(t, joined, "--kit ./mykit")
+	require.Contains(t, joined, "--kit "+filepath.Join(dir, "mykit"))
 }
