@@ -31,12 +31,12 @@ import (
 
 const featureKey = "feature.ssh"
 
-// hostSuffix is the ".sbx" suffix `sbx ssh setup` routes by default (Host *.sbx).
+// hostSuffix is the ".sbx" suffix `sbx setup ssh` routes by default (Host *.sbx).
 // ponytail: hardcoded to the setup default; TargetFor takes no alias override.
 const hostSuffix = ".sbx"
 
 // Target is the SSH connection info for a sandbox: the sandbox name plus the
-// ".sbx" suffix that `sbx ssh setup` routes through the daemon.
+// ".sbx" suffix that `sbx setup ssh` routes through the daemon.
 type Target struct {
 	Host string // "<sandbox-name>.sbx"
 }
