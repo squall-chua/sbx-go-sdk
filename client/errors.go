@@ -19,6 +19,11 @@ var (
 	ErrDaemonNotRunning    = errors.New("sandboxd not running")
 	ErrBinaryNotFound      = cli.ErrBinaryNotFound
 	ErrUnexpectedFormat    = errors.New("unexpected sbx output format")
+	// ErrKitRejected reports that `sbx kit validate` refused an artifact. The
+	// CLI marks every refusal with an "INVALID:" line, whether the cause is a
+	// malformed spec.yaml or a source that kit.allowedSources forbids; the
+	// wrapped message carries which. Verified 2026-07-27 against sbx v0.37.0.
+	ErrKitRejected = errors.New("kit rejected by sbx")
 )
 
 // APIError is a structured non-2xx response from the daemon REST API.
