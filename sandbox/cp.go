@@ -56,6 +56,9 @@ func (s *Sandbox) CopyTo(ctx context.Context, localPath, sandboxPath string, opt
 // name, so when localPath does not exist the archive is staged beside it and
 // renamed into place, and when localPath is an existing directory the source
 // lands inside it.
+//
+// Missing ancestor directories of localPath are created and are not removed if
+// the copy fails; only the destination itself is guaranteed absent on failure.
 func (s *Sandbox) CopyFrom(ctx context.Context, sandboxPath, localPath string, opts ...CopyOption) error {
 	var cfg copyConfig
 	for _, o := range opts {
