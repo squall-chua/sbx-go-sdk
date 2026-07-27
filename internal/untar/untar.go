@@ -24,6 +24,10 @@ import (
 //   - Permission bits are preserved.
 //   - A relative symlink target that resolves outside destDir is an error; an
 //     absolute target is allowed.
+//
+// Hardlink entries (tar.TypeLink) are rejected rather than recreated as
+// hardlinks or copies — a known divergence from `sbx cp`, which does handle
+// them.
 func Extract(r io.Reader, destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
@@ -80,6 +84,10 @@ func Extract(r io.Reader, destDir string) error {
 			if err := root.Symlink(h.Linkname, name); err != nil {
 				return fmt.Errorf("symlink %s -> %s: %w", name, h.Linkname, err)
 			}
+		case tar.TypeXGlobalHeader:
+			// Go's tar.Reader surfaces the pax global header rather than consuming
+			// it, unlike TypeXHeader. It carries no file data — skip it.
+			continue
 		default:
 			return fmt.Errorf("unsupported tar entry type %q for %s", h.Typeflag, h.Name)
 		}
@@ -143,6 +151,9 @@ func mkParents(root *os.Root, name string) error {
 }
 
 func writeFile(root *os.Root, src io.Reader, name string, mode os.FileMode) error {
+	// A pre-existing symlink at name must be replaced, not written through —
+	// mirrors the TypeSymlink branch above.
+	_ = root.Remove(name)
 	f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return err

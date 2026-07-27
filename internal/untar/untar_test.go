@@ -279,3 +279,56 @@ func TestExtract_CreatesDestDirIfMissing(t *testing.T) {
 	require.NoError(t, Extract(buildTar(t, entry{name: "f.txt", mode: 0o644, body: "f"}), dst))
 	require.FileExists(t, filepath.Join(dst, "f.txt"))
 }
+
+func TestExtract_SkipsPaxGlobalHeader(t *testing.T) {
+	// `git archive` and GNU tar in pax mode emit a pax_global_header entry.
+	// Go's tar.Reader surfaces it to the caller instead of consuming it, so a
+	// naive switch aborts the whole extraction before writing anything.
+	//
+	// tar.Writer requires a TypeXGlobalHeader header to carry only Name and
+	// PAXRecords (everything else must be the zero value), so this is built
+	// directly rather than via buildTar/entry, which also sets Uname/Gname.
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Typeflag:   tar.TypeXGlobalHeader,
+		Name:       "pax_global_header",
+		PAXRecords: map[string]string{"comment": "example"},
+	}))
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name: "top.txt", Mode: 0o644, Size: 5, Typeflag: tar.TypeReg,
+		Uname: "root", Gname: "root",
+	}))
+	_, err := tw.Write([]byte("hello"))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+
+	dst := t.TempDir()
+	require.NoError(t, Extract(&buf, dst))
+
+	b, err := os.ReadFile(filepath.Join(dst, "top.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "hello", string(b))
+}
+
+func TestExtract_RegularFileReplacesExistingSymlink(t *testing.T) {
+	dst := t.TempDir()
+	err := Extract(buildTar(t,
+		entry{name: "real.txt", mode: 0o644, body: "r"},
+		entry{name: "link.txt", typeflag: tar.TypeSymlink, linkname: "real.txt"},
+		entry{name: "link.txt", mode: 0o644, body: "replaced"},
+	), dst)
+	require.NoError(t, err)
+
+	fi, err := os.Lstat(filepath.Join(dst, "link.txt"))
+	require.NoError(t, err)
+	require.Zero(t, fi.Mode()&os.ModeSymlink, "link.txt must be a regular file, not a symlink")
+
+	b, err := os.ReadFile(filepath.Join(dst, "link.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "replaced", string(b))
+
+	real, err := os.ReadFile(filepath.Join(dst, "real.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "r", string(real), "real.txt must be untouched")
+}
