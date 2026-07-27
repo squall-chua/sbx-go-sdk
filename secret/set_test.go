@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -43,7 +42,7 @@ func TestSetToken_GlobalScope(t *testing.T) {
 
 	stdin, err := os.ReadFile(filepath.Join(dir, "stdin.txt"))
 	require.NoError(t, err)
-	require.Equal(t, "sk-test", strings.TrimRight(string(stdin), "\n"))
+	require.Equal(t, "sk-test\n", string(stdin))
 }
 
 func TestSetToken_SandboxScopeAndOverwrite(t *testing.T) {
@@ -89,7 +88,7 @@ func TestSetRegistry_PasswordGoesToStdinNotArgv(t *testing.T) {
 
 	stdin, err := os.ReadFile(stdinFile)
 	require.NoError(t, err)
-	require.Equal(t, "ghp_secret", strings.TrimRight(string(stdin), "\n"))
+	require.Equal(t, "ghp_secret\n", string(stdin))
 }
 
 func TestSetRegistry_OmitsUsernameWhenEmpty(t *testing.T) {

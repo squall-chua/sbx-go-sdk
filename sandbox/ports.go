@@ -55,7 +55,7 @@ func (s *Sandbox) UnpublishPort(ctx context.Context, spec string) error {
 
 	published, err := s.Ports(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("unpublish-port: %w", err)
 	}
 	var keys []Port
 	for _, p := range published {

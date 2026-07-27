@@ -695,8 +695,9 @@ Verified live against `sandboxd` v0.37.0:
   parses the CLI table (no `--json` upstream); `policy.Profiles` is raw text.
 - **`SaveTemplate` requires a stopped sandbox** — the daemon refuses to snapshot a running one,
   and the CLI would otherwise block on an interactive stop prompt.
-- **`UnpublishPort` is REST** — `POST /sandbox/{name}/ports/unpublish` (body: a bare `[]PortKey`
-  array) works as of v0.37.0.
+- **`UnpublishPort` is REST** — it first sends `GET /sandbox/{name}/ports` to resolve which keys
+  match the spec, then `POST /sandbox/{name}/ports/unpublish` (body: a bare `[]PortKey` array);
+  works as of v0.37.0.
 - **`secret.SetCustom` is experimental** and exposes the value via the process list.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the
   value to the child process's stdin rather than passing it as a CLI argument, so unlike

@@ -128,6 +128,20 @@ func TestUnpublishPort_InvalidSpecIsRejectedBeforeAnyRequest(t *testing.T) {
 	require.Error(t, sb.UnpublishPort(context.Background(), "not-a-spec"))
 }
 
+func TestUnpublishPort_PortsLookupFailureIsReportedAsUnpublish(t *testing.T) {
+	// The lookup goes through Ports, which maps its own errors under the
+	// "ports" op. UnpublishPort must re-wrap that failure so the caller sees
+	// the operation they actually invoked.
+	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"message":"boom"}`))
+	}))
+	sb := NewForTest(c, "s1")
+	err := sb.UnpublishPort(context.Background(), "18080:8080")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unpublish-port")
+}
+
 func TestUnpublishPort_NoMatchingPublishedPort(t *testing.T) {
 	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/sandbox/s1/ports" {
