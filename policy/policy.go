@@ -75,9 +75,8 @@ func capture(ctx context.Context, c *client.Client, args ...string) (string, err
 	return r.Capture(ctx, nil, args...)
 }
 
-// PolicyRule is one rule from `sbx policy ls --json`, modelling the daemon's
-// filtered rule response. sbx v0.35.0 replaced the flat per-rule table with a
-// per-policy summary table, so List reads the stable --json rule stream instead.
+// PolicyRule is one rule from the daemon's filtered rule response
+// (GET /policy/network/rules), which List reads directly over REST.
 type PolicyRule struct {
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`

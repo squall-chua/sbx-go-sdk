@@ -36,6 +36,7 @@ func TestContract_VersionAlignment(t *testing.T) {
 			"\n  -> re-run `go run ./internal/tools/dwarfgen -bin $(which sbx)`, review the"+
 			" internal/api/types_gen.go diff, run the integration suite, then bump"+
 			" client.ClientVersion / client.TestedAPIVersion."+
+			"\n  -> reconcile docs/sbx-version-coverage.md against the upstream release notes for the new version."+
 			"\n  -> set SBX_ALLOW_VERSION_DRIFT=1 to tolerate this while upgrading.", args...)
 	}
 
