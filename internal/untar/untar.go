@@ -56,6 +56,12 @@ func Extract(r io.Reader, destDir string) error {
 			if err := root.MkdirAll(name, mode); err != nil {
 				return err
 			}
+			// mkParents may have already created this at 0o755, and MkdirAll is a
+			// no-op on an existing dir, so restore the recorded mode explicitly —
+			// as writeFile does for files.
+			if err := root.Chmod(name, mode); err != nil {
+				return err
+			}
 		case tar.TypeReg:
 			if err := mkParents(root, name); err != nil {
 				return err

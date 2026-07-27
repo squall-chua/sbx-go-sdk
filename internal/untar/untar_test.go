@@ -96,6 +96,35 @@ func TestExtract_NestedTree(t *testing.T) {
 	require.Equal(t, "d", string(b))
 }
 
+func TestExtract_PreservesDirMode(t *testing.T) {
+	dst := t.TempDir()
+	err := Extract(buildTar(t, entry{name: "dir/", mode: 0o700, typeflag: tar.TypeDir}), dst)
+	require.NoError(t, err)
+
+	fi, err := os.Stat(filepath.Join(dst, "dir"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), fi.Mode().Perm())
+}
+
+func TestExtract_DirModeAppliedWhenDirEntryFollowsItsContents(t *testing.T) {
+	// mkParents creates "dir" at 0o755 when "dir/file.txt" arrives first;
+	// the dir's own entry (0o700) must still win when it arrives later.
+	dst := t.TempDir()
+	err := Extract(buildTar(t,
+		entry{name: "dir/file.txt", mode: 0o644, body: "f"},
+		entry{name: "dir/", mode: 0o700, typeflag: tar.TypeDir},
+	), dst)
+	require.NoError(t, err)
+
+	dfi, err := os.Stat(filepath.Join(dst, "dir"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), dfi.Mode().Perm())
+
+	ffi, err := os.Stat(filepath.Join(dst, "dir", "file.txt"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o644), ffi.Mode().Perm())
+}
+
 func TestExtract_FileBeforeItsParentDirEntry(t *testing.T) {
 	// The daemon is not required to emit parent directories first.
 	dst := t.TempDir()
