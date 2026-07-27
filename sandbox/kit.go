@@ -2,8 +2,12 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/squall-chua/sbx-go-sdk/client"
 )
 
 // absLocal makes ref absolute when it names something that exists on disk,
@@ -62,4 +66,40 @@ func (s *Sandbox) AddKit(ctx context.Context, ref string) error {
 	}
 	_, err = r.Capture(ctx, nil, "kit", "add", s.info.Name, absLocal(ref))
 	return err
+}
+
+// kitsLabel is where the daemon records a sandbox's kit list.
+const kitsLabel = "com.docker.sandbox.kits"
+
+// Kits returns the kit references recorded on the sandbox, in the order they
+// were added.
+//
+// The list is read from the com.docker.sandbox.kits label, which the daemon
+// writes as a JSON string array; SandboxInfo has no kit field of its own.
+// Verified 2026-07-27 against sandboxd 0.24.0.
+//
+// Kits refreshes the sandbox first. The handle's cached info is a snapshot
+// taken at Get or Create, and AddKit recreates the container, so a cached
+// read would report the list as it was before the add.
+//
+// A sandbox with no kits returns an empty slice. If upstream renames the
+// label, this returns empty rather than an error — a silent answer, and a
+// known risk of reading a label instead of a documented field.
+func (s *Sandbox) Kits(ctx context.Context) ([]string, error) {
+	info, err := s.Inspect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if info.Labels == nil {
+		return nil, nil
+	}
+	raw, ok := (*info.Labels)[kitsLabel]
+	if !ok || raw == "" {
+		return nil, nil
+	}
+	var kits []string
+	if err := json.Unmarshal([]byte(raw), &kits); err != nil {
+		return nil, fmt.Errorf("%w: %s label: %v", client.ErrUnexpectedFormat, kitsLabel, err)
+	}
+	return kits, nil
 }

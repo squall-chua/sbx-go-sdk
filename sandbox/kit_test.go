@@ -2,10 +2,12 @@ package sandbox
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,4 +66,48 @@ func TestAddKit_AbsolutisesALocalDirectory(t *testing.T) {
 	require.NotContains(t, string(args), "./mykit",
 		"a relative path reaches the daemon and poisons the recorded kit list")
 	require.Contains(t, string(args), filepath.Join(dir, "mykit"))
+}
+
+// The kit list is a container label, not a SandboxInfo field: sandboxapi's
+// SandboxInfo has no kit field in DWARF. The label value is a JSON string
+// array. Verified 2026-07-27 against sandboxd 0.24.0.
+func TestKits_DecodesTheLabelJSONArray(t *testing.T) {
+	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"x","name":"my-sandbox","status":"running","workspace":"/ws",
+			"labels":{"com.docker.sandbox.kits":"[\"/abs/a\",\"/abs/b\"]"}}`))
+	}))
+	sb := NewForTest(c, "my-sandbox")
+
+	kits, err := sb.Kits(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"/abs/a", "/abs/b"}, kits)
+}
+
+func TestKits_MissingLabelIsEmptyNotAnError(t *testing.T) {
+	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"x","name":"my-sandbox","status":"running","workspace":"/ws",
+			"labels":{"com.docker.sandbox.agent":"shell"}}`))
+	}))
+	sb := NewForTest(c, "my-sandbox")
+
+	kits, err := sb.Kits(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, kits)
+}
+
+func TestKits_MalformedLabelIsUnexpectedFormat(t *testing.T) {
+	c := stubClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"x","name":"my-sandbox","status":"running","workspace":"/ws",
+			"labels":{"com.docker.sandbox.kits":"not json"}}`))
+	}))
+	sb := NewForTest(c, "my-sandbox")
+
+	_, err := sb.Kits(context.Background())
+
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }
