@@ -31,7 +31,7 @@ Status values: **covered** · **gap** (upstream feature the SDK does not expose)
 | `sbx cp -L` follows source symlinks | v0.33.0 | `WithFollowSymlinks` | covered |
 | `secret set-custom --host` wildcards | v0.33.0 | `secret.SetCustom` | covered — pattern passes through |
 | Experimental SSH endpoint | v0.34.0 | `ssh` | covered |
-| `sbx setup` (credential import) | v0.34.0 | `secret.Import` / `ImportAll` | covered (v0.37.0 sync) — `--force` stays opt-in via `WithOverwriteExisting`, unlike `skillstore.Import` which always forces; skill replacement is recoverable (the CLI backs up the folder first), a credential overwrite is not |
+| `sbx setup` (interactive host-config wizard) | v0.34.0 | — | gap — distinct command from `sbx secret import` below; detects host config and walks an interactive setup flow, not wrapped by the SDK |
 | `policy set-default` renamed `policy init` | v0.34.0 | `policy.SetDefault` | covered — calls `policy init` |
 | Kit source allowlist (`kit.allowedSources`) | v0.34.0 | `settings.Set` | covered — generic settings |
 | OCI v2 kit artifact streaming | v0.34.0 | — | deferred — kit spec |
@@ -39,7 +39,7 @@ Status values: **covered** · **gap** (upstream feature the SDK does not expose)
 | `sbx policy check network` | v0.35.0 | `policy.Check` | covered (v0.37.0 sync) — `sbx policy check --help` lists only the `network` subcommand, so there is no sibling to add a row for |
 | `sbx policy inspect` | v0.35.0 | `policy.InspectRaw` | covered (v0.37.0 sync) |
 | `policy ls --wide/--source/--decision/--include-inactive` | v0.35.0 | — | gap — fields are on `PolicyRule`; filter client-side |
-| `sbx secret import` | v0.35.0 | `secret.Import` / `ImportAll` | covered (v0.37.0 sync) |
+| `sbx secret import` | v0.35.0 | `secret.Import` / `ImportAll` | covered (v0.37.0 sync) — `--force` stays opt-in via `WithOverwriteExisting`, unlike `skillstore.Import` which always forces; skill replacement is recoverable (the CLI backs up the folder first), a credential overwrite is not |
 | `sbx rm --force` for an active session | v0.35.0 | `Remove(WithForce())` | covered (v0.37.0 sync) |
 | `sbx inspect` (kits, auth mode, active sessions) | v0.35.0 | — | gap — not in `api.SandboxInfo` |
 | `sbx kit add` recreates container, applies kit policy | v0.35.0 | — | deferred — kit spec |

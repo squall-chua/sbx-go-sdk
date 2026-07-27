@@ -50,7 +50,7 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Resource stats (CPU/mem/disk) | `exec.Stats(ctx, sb)` → `exec.Usage{ Cores, MemTotalKB, MemAvailableKB, MemUsedKB, CPUPercent, UptimeSeconds, DiskTotalGB, DiskUsedGB }` |
 | Interactive agent | `sandbox.Run(ctx, c, ...)` / `sb.Run(ctx, sandbox.WithAgentArgs(...))` |
 | Copy files | `sb.CopyTo(ctx, local, sandboxPath)`, `sb.CopyFrom(ctx, sandboxPath, local)` |
-| Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)` |
+| Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)`, `sb.UnpublishPort(ctx, spec)` |
 | Templates | `sb.SaveTemplate(ctx, tag)`, `template.List/Inspect/Remove/Load` |
 | Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.InspectRaw` |
 | Secrets | `secret.SetCustom/List/Remove`, `secret.SetToken/SetRegistry` (stdin, no argv exposure), `secret.Import/ImportAll` |

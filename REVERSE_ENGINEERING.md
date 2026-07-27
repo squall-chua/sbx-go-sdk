@@ -2,6 +2,11 @@
 
 Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.5 binary, with DWARF).
 
+> `docs/sbx-version-coverage.md` is the authority on which release a feature
+> shipped in — it is reconciled against upstream release notes and wired into
+> the drift gate. If a version marker below ever disagrees with that table,
+> the table wins.
+
 - **Module:** `github.com/docker/sandboxes` `v0.37.0`
 - **Main package:** `github.com/docker/sandboxes/cli-plugin/cmd/sandboxes`
 - **Daemon API version:** `0.24.0` (build `8b65b864b0d49c29f05a55170d6b5eea4c0d11e7`, 2026-07-27)
@@ -16,9 +21,10 @@ Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.5 binary, with DWARF)
 > `SandboxInfoStatus` — and it does not affect JSON. The whole existing SDK surface passes the
 > `internal/integration` suite unchanged at v0.37.0.
 >
-> New this release: a `skills` command (shared agent skills store), `policy check` /
-> `policy inspect`, `secret import`, and `-p/--publish` on `create`/`run`. Three REST paths the SDK
-> had written off as absent are now live: `GET /sandbox/{name}/files`,
+> New this release: a `skills` command (shared agent skills store) and `-p/--publish` on
+> `create`/`run`. `policy check` / `policy inspect` and `secret import` shipped in v0.35.0 and were
+> missed by that sync — this recon is what caught the gap; see docs/sbx-version-coverage.md. Three
+> REST paths the SDK had written off as absent are now live: `GET /sandbox/{name}/files`,
 > `POST /sandbox/{name}/ports/unpublish`, and `GET /policy/network/rules`. See §3.
 >
 > Earlier, for **v0.35.0** (daemon api `0.16.0` → `0.22.0`): the standalone `GET /health` endpoint
@@ -60,8 +66,8 @@ sbx policy COMMAND                            # manage sandbox network/egress po
     policy log [SANDBOX] | ls [SANDBOX] | reset
     policy profile ls
     policy init <allow-all|balanced|deny-all>   # renamed from set-default in v0.34.0 (kept as hidden deprecated alias)
-    policy check network [--sandbox S] [--json] [--verbose] TARGET   # NEW in v0.37.0
-    policy inspect <policy-or-rule>             # NEW in v0.37.0 (by policy/rule ID or name)
+    policy check network [--sandbox S] [--json] [--verbose] TARGET   # NEW in v0.35.0
+    policy inspect <policy-or-rule>             # NEW in v0.35.0 (by policy/rule ID or name)
 sbx ports SANDBOX [flags]                     # manage published ports
 sbx reset [flags]                             # reset all sandboxes + clean state
 sbx rm [SANDBOX...] [--all] [-f/--force]       # remove sandboxes; --all is NEW in v0.37.0
@@ -71,7 +77,7 @@ sbx run [flags] SANDBOX | AGENT [PATH...] [-- AGENT_ARGS...]   # run/attach an a
 sbx secret COMMAND                            # manage stored secrets
     secret ls [SANDBOX] | rm [-g|SANDBOX] [SERVICE] | rm --placeholder PH | rm --registry REF
     secret set [-g|SANDBOX] [SERVICE] | set-custom [-g|sandbox]
-    secret import                               # NEW in v0.37.0 (import secrets found in host env vars)
+    secret import                               # NEW in v0.35.0 (import secrets found in host env vars)
 sbx setup                                     # (experimental) detect host config + prepare sbx
     setup ssh [--alias PATTERN]                 # NEW path in v0.37.0 for `sbx ssh setup` (both still work)
 sbx skills COMMAND                            # NEW in v0.37.0 (experimental) shared agent skills store
