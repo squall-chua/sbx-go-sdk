@@ -67,8 +67,8 @@ type RegistryCredential struct {
 // SetRegistry stores a registry pull credential
 // (`sbx secret set [-g|SANDBOX] --registry HOST --password-stdin`).
 //
-// The password is fed through stdin, so unlike SetToken it is never exposed in
-// the host process list.
+// The password is written to the child's stdin and never appears in the
+// argument vector, so it is not visible in the host process list.
 func SetRegistry(ctx context.Context, c *client.Client, scope string, cred RegistryCredential, opts ...SetOption) error {
 	if cred.Host == "" {
 		return errors.New("secret set: registry host must not be empty")
