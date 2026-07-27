@@ -37,6 +37,20 @@ func recordingClient(t *testing.T, argFile string) *client.Client {
 	return fakeClient(t, argFile, "")
 }
 
+// stubPolicyClient returns a client whose daemon socket is served by h.
+func stubPolicyClient(t *testing.T, h http.Handler) *client.Client {
+	t.Helper()
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	l, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	srv := &http.Server{Handler: h}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+	c, err := client.New(context.Background(), client.WithSocketPath(sock))
+	require.NoError(t, err)
+	return c
+}
+
 func TestPolicyMutations(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
 	c := recordingClient(t, argFile)
@@ -90,39 +104,54 @@ func TestListRawAndProfiles(t *testing.T) {
 	require.Contains(t, prof, "POLICY-TEXT")
 }
 
-func TestListJSON(t *testing.T) {
-	json := `{"rules":[` +
-		`{"id":"default-ai","name":"default-ai","policy_id":"local-policy","scope":"global","applies_to":"all","resource_type":"network","decision":"allow","resources":["a.example.com:443","b.example.com:443"],"origin":"local","status":"active","editable":true},` +
-		`{"id":"block-bad","name":"block-bad","policy_id":"local-policy","scope":"global","applies_to":"web","resource_type":"network","decision":"deny","resources":["evil.example.com:443"],"origin":"local","status":"active","editable":true}` +
-		`]}`
-	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := fakeClient(t, argFile, json)
+func TestList_UsesRESTAndAlwaysRequestsAllTypes(t *testing.T) {
+	var gotPath, gotType, gotSandbox string
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotType = r.URL.Query().Get("type")
+		gotSandbox = r.URL.Query().Get("sandbox")
+		w.Write([]byte(`{"rules":[
+			{"id":"r1","name":"net","policy_id":"local-policy","scope":"global","applies_to":"all",
+			 "resource_type":"network","decision":"allow","resources":["a:443"],
+			 "origin":"local","status":"active","editable":true},
+			{"id":"r2","name":"fsr","policy_id":"local-policy","scope":"global","applies_to":"all",
+			 "resource_type":"filesystem:read","decision":"allow","resources":["/"],
+			 "origin":"local","status":"active","editable":true}
+		]}`))
+	}))
 
 	rules, err := List(context.Background(), c, "")
 	require.NoError(t, err)
+
+	require.Equal(t, "/policy/network/rules", gotPath)
+	require.Equal(t, "all", gotType, "type=all is mandatory: without it filesystem rules vanish silently")
+	require.Empty(t, gotSandbox)
+
 	require.Len(t, rules, 2)
-	require.Equal(t, PolicyRule{
-		ID: "default-ai", Name: "default-ai", PolicyID: "local-policy",
-		Scope: "global", AppliesTo: "all", ResourceType: "network", Decision: "allow",
-		Resources: []string{"a.example.com:443", "b.example.com:443"},
-		Origin:    "local", Status: "active", Editable: true,
-	}, rules[0])
-	require.Equal(t, "deny", rules[1].Decision)
-	require.Equal(t, []string{"evil.example.com:443"}, rules[1].Resources)
-
-	data, _ := os.ReadFile(argFile)
-	require.Contains(t, string(data), "policy ls --json")
+	require.Equal(t, "network", rules[0].ResourceType)
+	require.Equal(t, "filesystem:read", rules[1].ResourceType,
+		"filesystem rules must survive the migration")
 }
 
-func TestListJSON_Empty(t *testing.T) {
-	c := fakeClient(t, "", `{"rules":[]}`)
-	rules, err := List(context.Background(), c, "")
+func TestList_ScopeBecomesSandboxQueryParam(t *testing.T) {
+	var gotSandbox, gotType string
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSandbox = r.URL.Query().Get("sandbox")
+		gotType = r.URL.Query().Get("type")
+		w.Write([]byte(`{"rules":[]}`))
+	}))
+
+	_, err := List(context.Background(), c, "my-sandbox")
 	require.NoError(t, err)
-	require.Empty(t, rules)
+	require.Equal(t, "my-sandbox", gotSandbox)
+	require.Equal(t, "all", gotType)
 }
 
-func TestListJSON_Drift(t *testing.T) {
-	c := fakeClient(t, "", "not json at all")
+func TestList_MalformedJSONReturnsErrUnexpectedFormat(t *testing.T) {
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"rules":"not-an-array"}`))
+	}))
+
 	_, err := List(context.Background(), c, "")
 	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }
