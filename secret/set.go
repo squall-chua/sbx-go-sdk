@@ -14,18 +14,18 @@ type setConfig struct{ overwrite bool }
 type SetOption func(*setConfig)
 
 // WithOverwrite replaces an existing stored entry without confirmation
-// (`--force`).
+// (`--force`). Upstream's `--help` describes `--force` as applying "when
+// --token is used"; SetToken no longer passes `--token` (the token goes
+// through stdin instead), so whether `--force` still affects the stdin path is
+// unconfirmed. It is passed regardless — harmless if upstream ignores it here.
 func WithOverwrite() SetOption { return func(c *setConfig) { c.overwrite = true } }
 
 // SetToken stores a service secret, e.g. service "anthropic" or "github"
-// (`sbx secret set [-g|SANDBOX] SERVICE --token VALUE`).
+// (`sbx secret set [-g|SANDBOX] SERVICE`, token via stdin).
 //
-// SECURITY: the token is passed as a command-line argument, so it is visible in
-// the host process list for the lifetime of the child process. This is not an
-// oversight — `--password-stdin` is registry-only upstream, and the only other
-// non-argv path is an interactive terminal prompt an SDK cannot drive. Use
-// SetRegistry for registry credentials, which does read the value from stdin.
-// The name says "Token" precisely so this exposure is visible at the call site.
+// The token is written to the child's stdin and never appears in the argument
+// vector, so it is not visible in the host process list. Use SetRegistry for
+// registry credentials, which has the same property.
 func SetToken(ctx context.Context, c *client.Client, scope, service, token string, opts ...SetOption) error {
 	if service == "" {
 		return errors.New("secret set: service must not be empty")
@@ -40,7 +40,7 @@ func SetToken(ctx context.Context, c *client.Client, scope, service, token strin
 
 	args := []string{"secret", "set"}
 	args = append(args, scopeArg(scope))
-	args = append(args, service, "--token", token)
+	args = append(args, service)
 	if cfg.overwrite {
 		args = append(args, "--force")
 	}
@@ -49,7 +49,7 @@ func SetToken(ctx context.Context, c *client.Client, scope, service, token strin
 	if err != nil {
 		return err
 	}
-	_, err = r.Capture(ctx, nil, args...)
+	_, err = r.CaptureStdin(ctx, strings.NewReader(token), nil, args...)
 	return err
 }
 

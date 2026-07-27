@@ -38,7 +38,12 @@ func TestSetToken_GlobalScope(t *testing.T) {
 	require.Contains(t, string(args), "secret set")
 	require.Contains(t, string(args), "-g")
 	require.Contains(t, string(args), "anthropic")
-	require.Contains(t, string(args), "--token sk-test")
+	require.NotContains(t, string(args), "sk-test",
+		"the token must never appear in the argument vector")
+
+	stdin, err := os.ReadFile(filepath.Join(dir, "stdin.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "sk-test", strings.TrimRight(string(stdin), "\n"))
 }
 
 func TestSetToken_SandboxScopeAndOverwrite(t *testing.T) {
