@@ -120,3 +120,54 @@ func Validate(ctx context.Context, c *client.Client, ref string) error {
 	}
 	return nil
 }
+
+// Pack validates a kit directory and writes it to out as a ZIP
+// (`sbx kit pack DIRECTORY -o OUT`).
+//
+// out is required. The CLI would otherwise derive a name from the kit and the
+// artifact format and write it into the calling process's working directory —
+// a terminal convenience that is a trap in a library.
+func Pack(ctx context.Context, c *client.Client, dir, out string) error {
+	r, err := c.Runner()
+	if err != nil {
+		return err
+	}
+	_, err = r.Capture(ctx, nil, "kit", "pack", dir, "-o", out)
+	return err
+}
+
+// Push packages a kit directory and pushes it to an OCI registry
+// (`sbx kit push DIRECTORY REFERENCE`).
+//
+// The artifact format follows the kit's schemaVersion: "1" pushes a legacy
+// ZIP-based artifact, "2" a tar+gzip layer carrying the spec in the manifest
+// config blob. Authentication uses the Docker credential store.
+//
+// Unverified: this path has never been run against a real registry, because
+// no registry was reachable when it was written.
+func Push(ctx context.Context, c *client.Client, dir, ref string) error {
+	r, err := c.Runner()
+	if err != nil {
+		return err
+	}
+	_, err = r.Capture(ctx, nil, "kit", "push", dir, ref)
+	return err
+}
+
+// Pull fetches a kit artifact from an OCI registry and writes its layer
+// payload to out (`sbx kit pull REFERENCE -o OUT`).
+//
+// The registry must support HTTPS. Registry secrets set with
+// `sbx secret set --registry` take priority over the Docker credential store.
+// As with Pack, out is required rather than derived.
+//
+// Unverified: this path has never been run against a real registry, because
+// no registry was reachable when it was written.
+func Pull(ctx context.Context, c *client.Client, ref, out string) error {
+	r, err := c.Runner()
+	if err != nil {
+		return err
+	}
+	_, err = r.Capture(ctx, nil, "kit", "pull", ref, "-o", out)
+	return err
+}

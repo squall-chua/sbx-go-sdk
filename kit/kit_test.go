@@ -125,3 +125,49 @@ func TestValidate_ErrorWithoutInvalidPrefixIsNotErrKitRejected(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, client.ErrKitRejected)
 }
+
+// out is a required argument so the SDK always passes -o. Left to itself the
+// CLI derives a name from the kit and writes it into the calling process's
+// working directory.
+func TestPack_AlwaysPassesOutputFlag(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, "Packed artifact to /tmp/out.zip", "", 0)
+
+	require.NoError(t, Pack(context.Background(), c, "./mykit", "/tmp/out.zip"))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "kit pack ./mykit -o /tmp/out.zip")
+}
+
+func TestPull_AlwaysPassesOutputFlag(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, "", "", 0)
+
+	require.NoError(t, Pull(context.Background(), c, "ghcr.io/org/kit:1.0", "/tmp/out.tar.gz"))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "kit pull ghcr.io/org/kit:1.0 -o /tmp/out.tar.gz")
+}
+
+// `sbx kit push DIRECTORY REFERENCE` — directory first. Reversing them would
+// try to push a registry reference as a directory.
+func TestPush_PassesDirectoryBeforeReference(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, "", "", 0)
+
+	require.NoError(t, Push(context.Background(), c, "./mykit", "ghcr.io/org/kit:1.0"))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "kit push ./mykit ghcr.io/org/kit:1.0")
+}
+
+func TestPack_NonZeroExitIsAnError(t *testing.T) {
+	c := fakeClient(t, "", "", "ERROR: pack: invalid artifact: spec.yaml is required", 1)
+
+	err := Pack(context.Background(), c, "./mykit", "/tmp/out.zip")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, client.ErrKitRejected)
+}
