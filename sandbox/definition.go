@@ -100,6 +100,9 @@ func (d *Definition) toRunArgs() ([]string, error) {
 	for _, spec := range d.publish {
 		args = append(args, "-p", spec)
 	}
+	for _, ref := range d.kits {
+		args = append(args, "--kit", absLocal(ref))
+	}
 	if d.clone {
 		args = append(args, "--clone")
 	}

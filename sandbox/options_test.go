@@ -98,3 +98,20 @@ func TestWithKit_AbsolutisesALocalDirectory(t *testing.T) {
 	require.NotContains(t, joined, "--kit ./mykit")
 	require.Contains(t, joined, "--kit "+filepath.Join(dir, "mykit"))
 }
+
+func TestWithKit_EmitsRepeatedFlagOnRun(t *testing.T) {
+	d := newDefinition(
+		WithAgent("shell"),
+		WithWorkspace("/ws"),
+		WithKit("ghcr.io/org/a:1.0"),
+		WithKit("ghcr.io/org/b:1.0", "ghcr.io/org/c:1.0"),
+	)
+
+	args, err := d.toRunArgs()
+	require.NoError(t, err)
+
+	joined := strings.Join(args, " ")
+	require.Contains(t, joined, "--kit ghcr.io/org/a:1.0")
+	require.Contains(t, joined, "--kit ghcr.io/org/b:1.0")
+	require.Contains(t, joined, "--kit ghcr.io/org/c:1.0")
+}
