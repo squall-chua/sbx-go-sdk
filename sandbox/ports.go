@@ -41,37 +41,40 @@ func (s *Sandbox) PublishPort(ctx context.Context, p Port) ([]Port, error) {
 // or "18080:8080" (REST POST /sandbox/{name}/ports/unpublish; the body is a bare
 // array of port keys).
 //
-// A loopback publish creates one key per address family, so when the spec names
-// no host address every published key matching the sandbox port (and protocol,
-// when given) is released — one call still fully unpublishes a port.
+// The published-ports list is always fetched and filtered against it: a key
+// matches when its sandbox port equals the spec's, and its protocol, host port
+// and host IP each equal the spec's whenever the spec gave that field. A
+// loopback publish creates one key per address family, so a spec that omits the
+// host address matches every address family and one call still fully
+// unpublishes the port. A spec matching no published port is an error.
 func (s *Sandbox) UnpublishPort(ctx context.Context, spec string) error {
 	want, err := parsePortSpec(spec)
 	if err != nil {
 		return err
 	}
 
-	keys := []Port{want}
-	if want.HostIP == "" {
-		published, err := s.Ports(ctx)
-		if err != nil {
-			return err
+	published, err := s.Ports(ctx)
+	if err != nil {
+		return err
+	}
+	var keys []Port
+	for _, p := range published {
+		if p.SandboxPort != want.SandboxPort {
+			continue
 		}
-		keys = keys[:0]
-		for _, p := range published {
-			if p.SandboxPort != want.SandboxPort {
-				continue
-			}
-			if want.Protocol != "" && p.Protocol != want.Protocol {
-				continue
-			}
-			if want.HostPort != 0 && p.HostPort != want.HostPort {
-				continue
-			}
-			keys = append(keys, p)
+		if want.Protocol != "" && p.Protocol != want.Protocol {
+			continue
 		}
-		if len(keys) == 0 {
-			return fmt.Errorf("unpublish-port: no published port matches %q", spec)
+		if want.HostPort != 0 && p.HostPort != want.HostPort {
+			continue
 		}
+		if want.HostIP != "" && p.HostIP != want.HostIP {
+			continue
+		}
+		keys = append(keys, p)
+	}
+	if len(keys) == 0 {
+		return fmt.Errorf("unpublish-port: no published port matches %q", spec)
 	}
 
 	route := "/sandbox/" + s.info.Name + "/ports/unpublish"

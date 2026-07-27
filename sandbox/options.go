@@ -49,6 +49,9 @@ func WithStdio(in io.Reader, out, err io.Writer) Option {
 // HOST_PORT for an ephemeral host port. May be called once with several specs
 // or repeatedly.
 //
+// Specs are passed straight through without validation; the CLI is the
+// authority on the grammar and rejects a malformed spec itself.
+//
 // Publishing at creation is atomic with create; Sandbox.PublishPort adds ports
 // to an existing sandbox afterwards.
 func WithPublish(specs ...string) Option {
