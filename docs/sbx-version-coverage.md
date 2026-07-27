@@ -38,7 +38,7 @@ Status values: **covered** · **gap** (upstream feature the SDK does not expose)
 | Published ports restored on restart | v0.34.0 | `sandbox.Ports` | n/a — daemon-side |
 | `sbx policy check network` | v0.35.0 | `policy.Check` | covered (v0.37.0 sync) — `sbx policy check --help` lists only the `network` subcommand, so there is no sibling to add a row for |
 | `sbx policy inspect` | v0.35.0 | `policy.InspectRaw` | covered (v0.37.0 sync) |
-| `policy ls --wide/--source/--decision/--include-inactive` | v0.35.0 | — | gap — fields are on `PolicyRule`; filter client-side |
+| `policy ls --wide/--source/--decision/--include-inactive` | v0.35.0 | — | gap — fields are on `PolicyRule`; filter client-side. Whether `GET /policy/network/rules` can return inactive rules is **unresolvable from the client**: the endpoint ignores unknown query parameters (a deliberately bogus one returns a byte-identical 200 response), so `include_inactive=true` proves nothing, and every rule on a host without remote governance reports `status: active`. Settling it needs a daemon with an inactive rule. |
 | `sbx secret import` | v0.35.0 | `secret.Import` / `ImportAll` | covered (v0.37.0 sync) — `--force` stays opt-in via `WithOverwriteExisting`, unlike `skillstore.Import` which always forces; skill replacement is recoverable (the CLI backs up the folder first), a credential overwrite is not |
 | `sbx rm --force` for an active session | v0.35.0 | `Remove(WithForce())` | covered (v0.37.0 sync) |
 | `sbx inspect` (kits, auth mode, active sessions) | v0.35.0 | — | gap — not in `api.SandboxInfo` |
