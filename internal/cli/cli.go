@@ -51,20 +51,7 @@ func (r *Runner) Bin() string { return r.bin }
 // Capture runs `sbx args...` with extra env (KEY=VALUE), inheriting os.Environ,
 // and returns combined stdout. Non-zero exit yields *Error.
 func (r *Runner) Capture(ctx context.Context, extraEnv []string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, r.bin, args...)
-	cmd.Env = append(os.Environ(), extraEnv...)
-	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return out.String(), &Error{Args: args, ExitCode: ee.ExitCode(), Stderr: errb.String()}
-		}
-		return out.String(), &Error{Args: args, ExitCode: -1, Stderr: err.Error()}
-	}
-	return out.String(), nil
+	return r.CaptureStdin(ctx, nil, extraEnv, args...)
 }
 
 // CaptureStdin runs `sbx args...` like Capture, but wires stdin to the given
