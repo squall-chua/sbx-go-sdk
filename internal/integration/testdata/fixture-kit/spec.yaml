@@ -1,0 +1,18 @@
+# A minimal kit that `sbx kit add` accepts.
+#
+# DO NOT add credentials, publishedPorts, volumes, commands.startup or
+# commands.initFiles here. The kit-add recreate flow refuses all five
+# pre-flight, and TestSmoke_AddKitRecordsAbsolutePath would then fail for a
+# reason unrelated to what it tests.
+schemaVersion: "2"
+kind: mixin
+name: fixture-kit
+version: 0.1.0
+description: fixture for sbx-go-sdk integration tests
+environment:
+  variables:
+    SBX_GO_SDK_FIXTURE: "1"
+caps:
+  network:
+    allow:
+      - api.example.com
