@@ -32,6 +32,8 @@ func TestParsePortSpec_Invalid(t *testing.T) {
 	for _, spec := range []string{
 		"", "abc", "18080:", ":8080", "18080:8080/", "a:b:c:d:e",
 		"[::1:18080:8080", "18080:notaport",
+		"[]:1:2", "127.0.0.1]:18080:8080", "18080:8080/tc:p", "18080:8080/TCP",
+		"notanip:18080:8080",
 	} {
 		t.Run(spec, func(t *testing.T) {
 			_, err := parsePortSpec(spec)

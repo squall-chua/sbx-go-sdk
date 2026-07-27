@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 )
@@ -25,6 +26,11 @@ func parsePortSpec(spec string) (Port, error) {
 		if p.Protocol == "" {
 			return Port{}, fmt.Errorf("port spec %q: empty protocol", spec)
 		}
+		for i := 0; i < len(p.Protocol); i++ {
+			if p.Protocol[i] < 'a' || p.Protocol[i] > 'z' {
+				return Port{}, fmt.Errorf("port spec %q: invalid protocol %q", spec, p.Protocol)
+			}
+		}
 	}
 
 	// Leading [IPv6].
@@ -34,6 +40,9 @@ func parsePortSpec(spec string) (Port, error) {
 			return Port{}, fmt.Errorf("port spec %q: unterminated IPv6 address", spec)
 		}
 		p.HostIP = s[1:end]
+		if net.ParseIP(p.HostIP) == nil {
+			return Port{}, fmt.Errorf("port spec %q: invalid IPv6 address %q", spec, p.HostIP)
+		}
 		rest := strings.TrimPrefix(s[end+1:], ":")
 		if rest == s[end+1:] {
 			return Port{}, fmt.Errorf("port spec %q: expected ':' after IPv6 address", spec)
@@ -53,6 +62,9 @@ func parsePortSpec(spec string) (Port, error) {
 			return Port{}, fmt.Errorf("port spec %q: host address given twice", spec)
 		}
 		p.HostIP, parts = parts[0], parts[1:]
+		if net.ParseIP(p.HostIP) == nil {
+			return Port{}, fmt.Errorf("port spec %q: invalid host address %q", spec, p.HostIP)
+		}
 	default:
 		return Port{}, fmt.Errorf("port spec %q: too many ':'-separated fields", spec)
 	}
