@@ -24,10 +24,6 @@ import (
 //   - Permission bits are preserved.
 //   - A relative symlink target that resolves outside destDir is an error; an
 //     absolute target is allowed.
-//
-// Hardlink entries (tar.TypeLink) are rejected rather than recreated as
-// hardlinks or copies — a known divergence from `sbx cp`, which does handle
-// them.
 func Extract(r io.Reader, destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
@@ -83,6 +79,24 @@ func Extract(r io.Reader, destDir string) error {
 			_ = root.Remove(name)
 			if err := root.Symlink(h.Linkname, name); err != nil {
 				return fmt.Errorf("symlink %s -> %s: %w", name, h.Linkname, err)
+			}
+		case tar.TypeLink:
+			// A hardlink target is an archive-root-relative path, so it gets the
+			// same validation as an entry name — os.Root confines the link itself,
+			// but an unchecked target is still worth rejecting explicitly.
+			target, err := safeName(h.Linkname)
+			if err != nil {
+				return err
+			}
+			if target == "" {
+				return fmt.Errorf("invalid hardlink %q: empty target", name)
+			}
+			if err := mkParents(root, name); err != nil {
+				return err
+			}
+			_ = root.Remove(name)
+			if err := root.Link(target, name); err != nil {
+				return fmt.Errorf("hardlink %s -> %s: %w", name, h.Linkname, err)
 			}
 		case tar.TypeXGlobalHeader:
 			// Go's tar.Reader surfaces the pax global header rather than consuming
@@ -152,8 +166,12 @@ func mkParents(root *os.Root, name string) error {
 
 func writeFile(root *os.Root, src io.Reader, name string, mode os.FileMode) error {
 	// A pre-existing symlink at name must be replaced, not written through —
-	// mirrors the TypeSymlink branch above.
-	_ = root.Remove(name)
+	// mirrors the TypeSymlink branch above. A pre-existing directory is left
+	// alone, so OpenFile below fails with "is a directory" instead of the
+	// entry silently replacing it.
+	if fi, err := root.Lstat(name); err == nil && !fi.IsDir() {
+		_ = root.Remove(name)
+	}
 	f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return err

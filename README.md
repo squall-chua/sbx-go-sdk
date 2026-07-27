@@ -688,8 +688,7 @@ Verified live against `sandboxd` v0.37.0:
   of v0.37.0 (it was `404` through v0.35.0). `CopyFrom` starts a stopped sandbox first, matching
   `sbx cp`'s own behaviour; this differs from `exec`, which requires an explicit `WithAutoStart()`.
   `CopyTo` still shells out — there is no REST upload path. `CopyFrom` places no cap on extracted
-  size, and its `internal/untar` extractor rejects hardlink entries rather than recreating them
-  (`sbx cp` does handle them) — both known divergences.
+  size.
 - **`policy.List` is REST** — `GET /policy/network/rules` works as of v0.37.0 and always sends
   `type=all` (omitting it silently drops filesystem rules with no error). A shape change yields
   `client.ErrUnexpectedFormat`; use `policy.ListRaw` for the human table. `secret.List` still

@@ -332,3 +332,53 @@ func TestExtract_RegularFileReplacesExistingSymlink(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "r", string(real), "real.txt must be untouched")
 }
+
+func TestExtract_HardlinkInsideRootIsCreated(t *testing.T) {
+	dst := t.TempDir()
+	err := Extract(buildTar(t,
+		entry{name: "real.txt", mode: 0o644, body: "r"},
+		entry{name: "link.txt", typeflag: tar.TypeLink, linkname: "real.txt"},
+	), dst)
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(dst, "link.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "r", string(b))
+
+	fi1, err := os.Stat(filepath.Join(dst, "real.txt"))
+	require.NoError(t, err)
+	fi2, err := os.Stat(filepath.Join(dst, "link.txt"))
+	require.NoError(t, err)
+	require.True(t, os.SameFile(fi1, fi2), "link.txt must be a hardlink to real.txt, not a copy")
+}
+
+func TestExtract_EscapingHardlinkTargetIsRejected(t *testing.T) {
+	dst := t.TempDir()
+	err := Extract(buildTar(t,
+		entry{name: "link.txt", typeflag: tar.TypeLink, linkname: "../../../../etc/passwd"},
+	), dst)
+	require.Error(t, err)
+	require.NoFileExists(t, filepath.Join(dst, "link.txt"))
+}
+
+func TestExtract_HardlinkToMissingTargetIsRejected(t *testing.T) {
+	dst := t.TempDir()
+	err := Extract(buildTar(t,
+		entry{name: "link.txt", typeflag: tar.TypeLink, linkname: "never-existed.txt"},
+	), dst)
+	require.Error(t, err)
+	require.NoFileExists(t, filepath.Join(dst, "link.txt"))
+}
+
+func TestExtract_RegularFileDoesNotReplaceDirectory(t *testing.T) {
+	dst := t.TempDir()
+	err := Extract(buildTar(t,
+		entry{name: "dir/", mode: 0o755, typeflag: tar.TypeDir},
+		entry{name: "dir", mode: 0o644, body: "not a dir"},
+	), dst)
+	require.Error(t, err)
+
+	fi, err := os.Stat(filepath.Join(dst, "dir"))
+	require.NoError(t, err)
+	require.True(t, fi.IsDir(), "dir must still be a directory")
+}
