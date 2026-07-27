@@ -1,7 +1,7 @@
 # sbx-go-sdk
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev/)
-[![sbx v0.35.0](https://img.shields.io/badge/sbx-v0.35.0-2496ED?logo=docker)](https://docs.docker.com/)
+[![sbx v0.37.0](https://img.shields.io/badge/sbx-v0.37.0-2496ED?logo=docker)](https://docs.docker.com/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/squall-chua/sbx-go-sdk.svg)](https://pkg.go.dev/github.com/squall-chua/sbx-go-sdk)
 
 A Go SDK for automating **Docker Sandboxes** (`sbx`) — isolated micro-VM environments
@@ -50,6 +50,8 @@ fmt.Printf("exit %d:\n%s", code, body)
   - [9. Templates](#9-templates)
   - [10. Network policy](#10-network-policy)
   - [11. Secrets](#11-secrets)
+  - [12. Settings & SSH](#12-settings--ssh)
+  - [13. Skills](#13-skills)
 - [Error handling](#error-handling)
 - [Runnable examples](#runnable-examples)
 - [Agent skill](#agent-skill)
@@ -95,9 +97,11 @@ key to using the API correctly (full glossary in [CONTEXT.md](CONTEXT.md)):
 The transport is **hybrid** (see [docs/adr/0001](docs/adr/0001-hybrid-cli-shellout-plus-rest.md)):
 
 - **REST over a unix socket** for everything the daemon exposes — list, inspect, start, stop,
-  remove, exec/attach (via a hijacked Docker stdcopy stream), ports, templates, network log.
+  remove, exec/attach (via a hijacked Docker stdcopy stream), ports (publish/unpublish), copying a
+  file *from* a sandbox, policy list/check, templates, network log.
 - **Shell-out to the `sbx` binary** for orchestration-heavy operations with no REST client
-  path — `Create`, agent `Run`, `template save`, `cp`, and `policy`/`secret` mutations.
+  path — `Create`, agent `Run`, `template save`, copying a file *to* a sandbox, skills import, and
+  `policy`/`secret` mutations.
 
 The socket path is resolved with this precedence: `client.WithSocketPath(...)` >
 `$DOCKER_SANDBOXES_API` > the XDG default
@@ -146,7 +150,7 @@ sbx login
 **4. Verify** the CLI and daemon are healthy:
 
 ```bash
-sbx version    # CLI + daemon version (target this SDK against v0.35.0)
+sbx version    # CLI + daemon version (target this SDK against v0.37.0)
 sbx diagnose   # diagnose install / daemon issues
 sbx ls         # list sandboxes (an empty list means the daemon is reachable)
 ```
@@ -168,7 +172,7 @@ Requires:
   [Set up `sbx`](#set-up-sbx-prerequisite) above. The SDK shells out to it for create/run/cp/etc.
 - A reachable **`sandboxd`** — pass `client.WithAutoStart()` and the SDK will start it for you.
 
-This SDK is built and live-verified against **`sbx` / `sandboxd` v0.35.0** (daemon API `0.22.0`);
+This SDK is built and live-verified against **`sbx` / `sandboxd` v0.37.0** (daemon API `0.24.0`);
 see [Version alignment](#version-alignment) for how it tracks newer `sbx` releases.
 
 ## Quick start
@@ -228,9 +232,10 @@ func main() {
 | `exec` | `…/exec` | Run commands: capture, streaming, interactive attach (TTY + resize), detached, resource stats. |
 | `template` | `…/template` | List / inspect / remove / load template images. |
 | `policy` | `…/policy` | Network egress policy: defaults, allow/deny rules, profiles, proxy log. |
-| `secret` | `…/secret` | Stored proxy-injected secrets (experimental upstream). |
+| `secret` | `…/secret` | Stored proxy-injected secrets and credential import (experimental upstream). |
 | `settings` | `…/settings` | Read/write persistent sandboxd settings via `sbx settings … --json`. |
 | `ssh` | `…/ssh` | Experimental SSH endpoint: enable/disable, `setup`, connection targets — composed over `settings`. |
+| `skillstore` | `…/skillstore` | Import host agent-skill folders into sandboxd's shared skills store (experimental upstream). |
 
 Two return types are re-exported aliases so external callers never need `internal/*`:
 `sandbox.Info` (daemon sandbox description) and `client.Runner` (the `sbx`-binary runner).
@@ -245,16 +250,18 @@ Two return types are re-exported aliases so external callers never need `interna
 // Default: resolve the socket, don't start anything.
 c, err := client.New(ctx)
 
-// Common production setup: ensure the daemon is up, fail fast on version mismatch.
+// Common production setup: ensure the daemon is up.
 c, err := client.New(ctx,
 	client.WithAutoStart(),                 // start sandboxd if down, wait up to ~30s
-	client.WithStrictVersion(),             // error if the daemon is incompatible
 	client.WithHTTPTimeout(30*time.Second), // per-request REST timeout
 )
 
 // Overrides (rarely needed):
 client.WithSocketPath("/custom/sandboxd.sock")
 client.WithBinaryPath("/opt/sbx/bin/sbx")
+
+// Deprecated — see "Version alignment" / ADR 0004:
+client.WithStrictVersion() // hard-fails on any api_version difference, which fires on every sbx release
 ```
 
 Daemon introspection and control:
@@ -262,7 +269,7 @@ Daemon introspection and control:
 ```go
 h, _ := c.Health(ctx)                  // liveness: status, version
 st, _ := c.DaemonStatus(ctx)           // Running bool + Socket (down daemon => Running:false, nil err)
-res, _ := c.CheckVersion(ctx)          // "compatible" | "incompatible" | "unknown"
+res, _ := c.CheckVersion(ctx)          // deprecated: POST /version was removed in sbx v0.37.0, always errors now
 info, _ := c.Info(ctx)                 // socket paths
 _ = c.EnsureRunning(ctx)               // start + wait-for-healthy if needed
 _ = c.SetLogLevel(ctx, "proxy", "debug")
@@ -288,6 +295,7 @@ sb, err := sandbox.Create(ctx, c,
 	sandbox.WithTemplate("myimg:v1"),       // base on a saved template
 	sandbox.WithProfile("balanced"),        // governance profile
 	sandbox.WithClone(),                    // run on an in-container git clone, not a bind mount
+	sandbox.WithPublish("8080"),            // publish ports atomically with create ("-p", sbx v0.37.0+)
 )
 ```
 
@@ -318,6 +326,9 @@ fmt.Println(info.Status, info.Workspace, info.Ports)
 _ = sb.Start(ctx)   // bring the micro-VM up
 _ = sb.Stop(ctx)    // bring it down, keep the sandbox
 _ = sb.Remove(ctx)  // delete it (no confirmation prompt)
+
+// Force-remove one with an active session (e.g. an open SSH connection):
+_ = sb.Remove(ctx, sandbox.WithForce())
 ```
 
 ### 5. Exec commands
@@ -420,7 +431,10 @@ sandbox.Run(ctx, c, sandbox.WithAgent("shell"), sandbox.WithWorkspace("."),
 
 ### 7. Copy files
 
-`cp` shells out to the `sbx` binary (the daemon's `/files` GET is `404` in v0.35.0).
+`CopyTo` (host → sandbox) shells out to the `sbx` binary. `CopyFrom` (sandbox → host) reads
+`GET /sandbox/{name}/files` over REST (this endpoint answered `404` through v0.35.0; it works as
+of v0.37.0) and extracts the tar stream itself. `CopyFrom` auto-starts a stopped sandbox to match
+`sbx cp`'s own behaviour — unlike `exec`, which requires an explicit `WithAutoStart()`.
 
 ```go
 _ = sb.CopyTo(ctx, "./config.json", "/home/user/config.json")
@@ -471,13 +485,20 @@ _ = policy.Deny(ctx, c, "review-bot", "evil.test")   // per-sandbox deny
 _ = policy.RemoveRule(ctx, c, "review-bot", "evil.test")  // resource selector required
 _ = policy.Reset(ctx, c)
 
-rules, _ := policy.List(ctx, c, "")                  // []policy.PolicyRule
+rules, _ := policy.List(ctx, c, "")                  // []policy.PolicyRule (REST, always type=all)
 raw, _ := policy.ListRaw(ctx, c, "")                 // unparsed text escape hatch
 prof, _ := policy.Profiles(ctx, c)                   // raw text (no --json upstream)
 log, _ := policy.Log(ctx, c)                         // structured: allowed/blocked hosts
 for _, e := range log.BlockedHosts {
 	fmt.Println("blocked:", e.Host, e.VMName)
 }
+
+// Ask whether the current policy would authorize an access, without connecting:
+auth, _ := policy.Check(ctx, c, "evil.test")                          // *policy.Authorization
+fmt.Println(auth.Allowed, auth.Rule, auth.Reason)
+_, _ = policy.Check(ctx, c, "api.github.com", policy.WithCheckSandbox("review-bot"))
+
+detail, _ := policy.InspectRaw(ctx, c, "review-bot-net-allow") // human-rendered detail; selector from List
 ```
 
 ### 11. Secrets
@@ -491,6 +512,19 @@ _ = secret.SetCustom(ctx, c, "", secret.CustomSecret{
 	Env:   "API_KEY",         // env var (set to a placeholder) inside the sandbox
 	Value: "sk-...",          // the real secret
 })
+
+// SetToken/SetRegistry write the secret to the child process's stdin — it never
+// appears in the argument vector, unlike SetCustom above.
+_ = secret.SetToken(ctx, c, "", "anthropic", os.Getenv("ANTHROPIC_API_KEY"))
+_ = secret.SetRegistry(ctx, c, "", secret.RegistryCredential{
+	Host:     "ghcr.io",
+	Username: "me",
+	Password: os.Getenv("GHCR_TOKEN"),
+})
+
+// Detect and store credentials already present in the host environment:
+_ = secret.Import(ctx, c, "openai")                    // one named service (OPENAI_API_KEY)
+_ = secret.ImportAll(ctx, c, secret.WithDryRun())      // preview everything detected; drop WithDryRun to write
 
 secrets, _ := secret.List(ctx, c, "")      // *secret.Secrets{Stored, Custom}
 raw, _ := secret.ListRaw(ctx, c, "")       // unparsed text escape hatch
@@ -527,6 +561,17 @@ fmt.Println(tgt.Command())         // ssh mybox.sbx
 > `Set`/`Enable`/etc. are fire-and-forget — they write `settings.json` and return; the
 > daemon reloads within ~5s. `ssh.Enable` toggles only `feature.ssh`; SSH also requires
 > `platform.allowExperimentalFeatures` (default `true`).
+
+### 13. Skills
+
+`skillstore` imports the host's agent skill folders into sandboxd's shared skills store
+(`sbx skills import`, **experimental upstream**, added in v0.37.0). Imported skills survive
+sandbox deletion; `sbx reset` clears the store. Shells out to the `sbx` binary.
+
+```go
+_ = skillstore.Import(ctx, c)                          // --force: replaces existing skills (CLI backs them up first)
+_ = skillstore.Import(ctx, c, skillstore.WithDryRun()) // preview only, writes nothing
+```
 
 ---
 
@@ -584,12 +629,12 @@ source. Invoke it with `/sbx-go-sdk`.
 ## Version alignment
 
 This SDK is **pinned to a tested `sbx` / `sandboxd` range**. It is currently built and
-live-verified against **`sbx` v0.35.0** with daemon REST **`api_version 0.22.0`**. Both values
+live-verified against **`sbx` v0.37.0** with daemon REST **`api_version 0.24.0`**. Both values
 are exported constants you can read at runtime:
 
 ```go
-client.ClientVersion    // "v0.35.0" — the sbx/daemon version the SDK was built against
-client.TestedAPIVersion // "0.22.0"  — the daemon REST api_version its wire types were generated from
+client.ClientVersion    // "v0.37.0" — the sbx/daemon version the SDK was built against
+client.TestedAPIVersion // "0.24.0"  — the daemon REST api_version its wire types were generated from
 ```
 
 **Why a pin exists.** The [transport is hybrid](#how-it-works): REST wire structs are generated
@@ -597,20 +642,15 @@ from the `sbx` binary's DWARF, and orchestration ops shell out to versioned CLI 
 that changes either surface can drift from what the SDK expects, so the SDK targets a known-good
 range rather than promising forward-compatibility with every release.
 
-**How a mismatch is handled at runtime.** On connect the SDK can ask the daemon whether it's
-compatible (`POST /version`):
-
-- **Default — lenient.** `client.New` does *not* check; it connects and proceeds. A newer daemon
-  usually just works for the unchanged surface.
-- **Opt-in — strict.** `client.New(ctx, client.WithStrictVersion())` returns
-  `client.ErrIncompatibleVersion` when the daemon reports this client as incompatible.
-
-> ⚠️ **Strict mode caveat.** The daemon's `POST /version` verdict is unreliable on
-> **non-release builds** (`DaemonHealth.Release == false`): such daemons have been observed
-> returning `"incompatible"` for *every* client string — including their own exact version. So
-> `WithStrictVersion()` can reject a daemon that otherwise works perfectly. Prefer comparing
-> `DaemonHealth.Version` / `DaemonHealth.APIVersion` against the constants above if you want a
-> dependable check:
+**Version checking is a development-time gate, not a runtime one** — see
+[ADR 0004](docs/adr/0004-version-alignment-is-a-development-time-gate.md). `client.WithStrictVersion()`
+and `Client.CheckVersion` are **deprecated**: `api_version` bumps on every `sbx` release with no
+documented compatibility contract, so a strict compare fires on every upgrade — including ones
+where nothing the SDK uses changed — and upstream removed `POST /version` entirely in v0.37.0, so
+`CheckVersion` can no longer succeed against a current daemon. Drift detection instead lives in
+`TestContract_VersionAlignment`, an integration test a maintainer runs deliberately, not something
+`client.New` enforces. For a runtime check, compare `DaemonHealth().Version` / `.APIVersion`
+against the constants yourself:
 
 ```go
 h, _ := c.DaemonHealth(ctx)
@@ -630,7 +670,10 @@ contract test:
    while upgrading).
 2. Regenerate the wire types: `go run ./internal/tools/dwarfgen -bin $(which sbx)`, then review
    the [`internal/api/types_gen.go`](internal/api/types_gen.go) diff.
-3. Run the full `integration` suite against the new daemon, migrate any
+3. Reconcile [`docs/sbx-version-coverage.md`](docs/sbx-version-coverage.md) against the upstream
+   release notes for the new version — the drift gate's failure message points here, so a sync
+   that quietly misses features (as v0.35.0's did) gets caught.
+4. Run the full `integration` suite against the new daemon, migrate any
    [stubbed endpoints](#known-deviations--limitations) that are now implemented, and bump
    `client.ClientVersion` / `client.TestedAPIVersion`.
 
@@ -639,17 +682,41 @@ contract test is what tells maintainers a re-sync is due.
 
 ## Known deviations & limitations
 
-Verified live against `sandboxd` v0.35.0:
+Verified live against `sandboxd` v0.37.0:
 
-- **`cp` is shell-out** — the daemon's `/files` GET is `404`.
-- **`policy.List` reads `sbx policy ls --json`** — v0.35.0 replaced the flat per-rule table with a
-  per-policy summary table, so the SDK parses the stable `--json` rule stream and returns
-  `client.ErrUnexpectedFormat` if its shape drifts; use `policy.ListRaw` for the human table.
-  `secret.List` still parses the CLI table (no `--json` upstream); `policy.Profiles` is raw text.
+- **`CopyFrom` is REST and auto-starts the sandbox** — `GET /sandbox/{name}/files?path=…` works as
+  of v0.37.0 (it was `404` through v0.35.0). `CopyFrom` starts a stopped sandbox first, matching
+  `sbx cp`'s own behaviour; this differs from `exec`, which requires an explicit `WithAutoStart()`.
+  `CopyTo` still shells out — there is no REST upload path. `CopyFrom` places no cap on extracted
+  size.
+- **`policy.List` is REST** — `GET /policy/network/rules` works as of v0.37.0 and always sends
+  `type=all` (omitting it silently drops filesystem rules with no error). A shape change yields
+  `client.ErrUnexpectedFormat`; use `policy.ListRaw` for the human table. `secret.List` still
+  parses the CLI table (no `--json` upstream); `policy.Profiles` is raw text.
 - **`SaveTemplate` requires a stopped sandbox** — the daemon refuses to snapshot a running one,
   and the CLI would otherwise block on an interactive stop prompt.
-- **`UnpublishPort` shells out** — no confirmed REST unpublish path in v0.35.0.
+- **`UnpublishPort` is REST** — it first sends `GET /sandbox/{name}/ports` to resolve which keys
+  match the spec, then `POST /sandbox/{name}/ports/unpublish` (body: a bare `[]PortKey` array);
+  works as of v0.37.0.
 - **`secret.SetCustom` is experimental** and exposes the value via the process list.
+- **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the
+  value to the child process's stdin rather than passing it as a CLI argument, so unlike
+  `SetCustom` it does not appear in the host process list. Confirmed by a live run: `--force`
+  **does** work on this stdin path, despite upstream's `--help` claiming it applies only "when
+  `--token` is used".
+- **`secret.SetToken`, `SetRegistry` and `Import` reject an existing entry** rather than
+  overwriting it. Without `--force`, `sbx secret set`/`secret import` on an entry that already
+  exists in the target scope prompts for confirmation; on non-interactive stdin that prompt reads
+  EOF, cancels, and **exits 0 having stored nothing**. All three now check for an existing entry
+  before invoking the CLI and return an error in that case instead. Pass `WithOverwrite()`
+  (`SetToken`/`SetRegistry`) or `WithOverwriteExisting()` (`Import`) to opt into replacing it.
+- **Two related paths may have the same silent-success shape, unverified.** `sbx` has a second
+  overwrite prompt — `"%s OAuth token already exists. Overwrite? (y/N): "` — for OAuth-configured
+  services; if `secret ls` doesn't surface those as rows, `SetToken` against such a service could
+  still reach that prompt and exit 0 silently. `SetCustom` has no pre-flight check at all and
+  pipes nothing to stdin, so `set-custom` against an existing entry may have the same shape.
+  Neither can be confirmed without running `sbx secret` against real credentials, so both are
+  recorded as known limitations rather than fixed here.
 - **`settings`/`ssh` mutations are fire-and-forget** — `settings.Set/Unset` and
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and return before
   the daemon's ~5s hot-reload; reads (`settings.Get/List`, `ssh.Enabled`) use `--json`.

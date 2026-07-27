@@ -43,3 +43,17 @@ func WithAgentArgs(args ...string) Option {
 func WithStdio(in io.Reader, out, err io.Writer) Option {
 	return func(d *Definition) { d.stdin = in; d.stdout = out; d.stderr = err }
 }
+
+// WithPublish publishes sandbox ports at creation time (`-p`, added in sbx
+// v0.37.0). Each spec is [[HOST_IP:]HOST_PORT:]SANDBOX_PORT[/PROTOCOL]; omit
+// HOST_PORT for an ephemeral host port. May be called once with several specs
+// or repeatedly.
+//
+// Specs are passed straight through without validation; the CLI is the
+// authority on the grammar and rejects a malformed spec itself.
+//
+// Publishing at creation is atomic with create; Sandbox.PublishPort adds ports
+// to an existing sandbox afterwards.
+func WithPublish(specs ...string) Option {
+	return func(d *Definition) { d.publish = append(d.publish, specs...) }
+}

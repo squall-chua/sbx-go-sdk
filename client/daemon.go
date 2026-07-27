@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -35,25 +36,27 @@ type versionResponse struct {
 }
 
 // ClientVersion is the sbx/daemon version this SDK was built/tested against.
-const ClientVersion = "v0.35.0"
+const ClientVersion = "v0.37.0"
 
 // TestedAPIVersion is the daemon REST api_version this SDK's wire types were
 // generated from and validated against (see DaemonHealthResponse.APIVersion). The
 // integration contract test (TestContract_VersionAlignment) fails when a live
 // daemon drifts from it, signalling a re-sync is due.
-const TestedAPIVersion = "0.22.0"
+const TestedAPIVersion = "0.24.0"
 
 // CheckVersion asks the daemon whether this client is compatible.
-// Returns "compatible", "incompatible", or "unknown".
 //
-// Informational only: /version is dead on non-release daemons (it returns
-// "incompatible" for every string, including the daemon's own version), so the
-// strict-version check in New uses DaemonHealth().APIVersion instead.
+// Deprecated: POST /version was removed in sbx v0.37.0 and answers 404 on every
+// verb, so this can no longer succeed against a current daemon. Compare
+// DaemonHealth().Version and .APIVersion against ClientVersion and
+// TestedAPIVersion instead. See docs/adr/0004.
 func (c *Client) CheckVersion(ctx context.Context) (string, error) {
 	var resp versionResponse
 	err := c.tr.DoJSON(ctx, http.MethodPost, "/version", versionRequest{Version: ClientVersion}, &resp)
 	if err != nil {
-		return "", mapHTTPError("version", err)
+		return "", fmt.Errorf("check-version: POST /version was removed in sbx v0.37.0; "+
+			"compare DaemonHealth().APIVersion against TestedAPIVersion instead: %w",
+			mapHTTPError("version", err))
 	}
 	return resp.Result, nil
 }

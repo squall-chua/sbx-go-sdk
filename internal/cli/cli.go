@@ -51,8 +51,19 @@ func (r *Runner) Bin() string { return r.bin }
 // Capture runs `sbx args...` with extra env (KEY=VALUE), inheriting os.Environ,
 // and returns combined stdout. Non-zero exit yields *Error.
 func (r *Runner) Capture(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+	return r.CaptureStdin(ctx, nil, extraEnv, args...)
+}
+
+// CaptureStdin runs `sbx args...` like Capture, but wires stdin to the given
+// reader so flags such as `secret set --password-stdin` can be fed a value
+// without exposing it in the argument vector. A nil stdin reads as empty.
+func (r *Runner) CaptureStdin(ctx context.Context, stdin io.Reader, extraEnv []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, r.bin, args...)
 	cmd.Env = append(os.Environ(), extraEnv...)
+	if stdin == nil {
+		stdin = bytes.NewReader(nil)
+	}
+	cmd.Stdin = stdin
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb

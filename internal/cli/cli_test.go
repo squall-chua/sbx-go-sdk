@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,4 +50,47 @@ func TestRunner_Inherit_ReturnsExitCode(t *testing.T) {
 	code, err := r.Inherit(context.Background(), Stdio{}, nil, "run", "shell")
 	require.NoError(t, err) // non-zero exit is reported via code, not err
 	require.Equal(t, 7, code)
+}
+
+func TestCaptureStdin_FeedsChildStdin(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "sbx")
+	// The fake binary echoes whatever it reads on stdin, prefixed, so the test
+	// can prove the value arrived via stdin and not via the argument vector.
+	script := "#!/bin/sh\nprintf 'stdin:'\ncat\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	r, err := NewRunner(bin)
+	require.NoError(t, err)
+
+	out, err := r.CaptureStdin(context.Background(), strings.NewReader("s3cr3t"), nil, "secret", "set")
+	require.NoError(t, err)
+	require.Equal(t, "stdin:s3cr3t", out)
+}
+
+func TestCaptureStdin_NilStdinIsEmpty(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "sbx")
+	script := "#!/bin/sh\nprintf 'stdin:'\ncat\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	r, err := NewRunner(bin)
+	require.NoError(t, err)
+
+	out, err := r.CaptureStdin(context.Background(), nil, nil, "x")
+	require.NoError(t, err)
+	require.Equal(t, "stdin:", out)
+}
+
+func TestCaptureStdin_NonZeroExitReturnsError(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "sbx")
+	script := "#!/bin/sh\necho boom >&2\nexit 3\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	r, err := NewRunner(bin)
+	require.NoError(t, err)
+
+	_, err = r.CaptureStdin(context.Background(), strings.NewReader("v"), nil, "x")
+	var cliErr *Error
+	require.ErrorAs(t, err, &cliErr)
+	require.Equal(t, 3, cliErr.ExitCode)
+	require.Contains(t, cliErr.Stderr, "boom")
 }

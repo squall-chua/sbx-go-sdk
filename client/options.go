@@ -23,6 +23,16 @@ func WithBinaryPath(p string) Option { return func(c *config) { c.binaryPath = p
 func WithAutoStart() Option { return func(c *config) { c.autoStart = true } }
 
 // WithStrictVersion makes the client hard-fail on an incompatible daemon version.
+//
+// Deprecated: this compares the daemon's api_version to TestedAPIVersion with
+// exact string equality, and api_version bumps on every sbx release — so it
+// fires on every upgrade, including ones where nothing the SDK uses changed. It
+// left a downstream consumer unable to start at v0.37.0, whose wire types are
+// byte-identical to v0.35.0.
+//
+// Drift is detected at development time by TestContract_VersionAlignment. For a
+// runtime check, compare DaemonHealth().Version / .APIVersion against
+// ClientVersion / TestedAPIVersion and apply your own policy. See docs/adr/0004.
 func WithStrictVersion() Option { return func(c *config) { c.strictVer = true } }
 
 // WithHTTPTimeout sets the per-request REST timeout (0 = none).

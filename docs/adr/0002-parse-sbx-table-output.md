@@ -1,5 +1,12 @@
 # Parse `sbx` table output into typed list APIs
 
+> **Partly superseded by [ADR 0003](0003-reclaim-rest-paths-for-cp-unpublish-policy-list.md)
+> (policy only; secrets unchanged).** The premise below is no longer true for policy: `sbx policy
+> ls` gained `--json` in v0.35.0 and `GET /policy/network/rules` works from v0.37.0, so
+> `policy.List` reads REST. `sbx secret ls` still has no `--json` and no REST path, so everything
+> here still describes `secret.List` — which remains the only consumer of `internal/coltable`.
+> The `policy.Profiles` decision in Consequences also still stands.
+
 `sbx policy ls` and `sbx secret ls` have no daemon REST path and no `--json` flag, so the SDK
 shelled them out and returned the raw, human-rendered table text — pushing the parsing burden
 onto every caller. This extends the coupling ADR 0001 already worried about (shell-out flags

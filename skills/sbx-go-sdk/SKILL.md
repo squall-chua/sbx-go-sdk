@@ -39,7 +39,7 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 
 | Need | Call |
 | --- | --- |
-| Connect / start daemon | `client.New(ctx, client.WithAutoStart(), client.WithStrictVersion())` |
+| Connect / start daemon | `client.New(ctx, client.WithAutoStart())` |
 | Provision a sandbox | `sandbox.Create(ctx, c, sandbox.WithAgent(...), sandbox.WithWorkspace(...))` |
 | List / get | `sandbox.List(ctx, c)`, `sandbox.Get(ctx, c, name)`, `sb.Inspect(ctx)` |
 | Lifecycle | `sb.Start/Stop/Remove(ctx)` |
@@ -50,18 +50,20 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Resource stats (CPU/mem/disk) | `exec.Stats(ctx, sb)` → `exec.Usage{ Cores, MemTotalKB, MemAvailableKB, MemUsedKB, CPUPercent, UptimeSeconds, DiskTotalGB, DiskUsedGB }` |
 | Interactive agent | `sandbox.Run(ctx, c, ...)` / `sb.Run(ctx, sandbox.WithAgentArgs(...))` |
 | Copy files | `sb.CopyTo(ctx, local, sandboxPath)`, `sb.CopyFrom(ctx, sandboxPath, local)` |
-| Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)` |
+| Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)`, `sb.UnpublishPort(ctx, spec)` |
 | Templates | `sb.SaveTemplate(ctx, tag)`, `template.List/Inspect/Remove/Load` |
-| Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log` |
-| Secrets | `secret.SetCustom/List/Remove` |
+| Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.InspectRaw` |
+| Secrets | `secret.SetCustom/List/Remove`, `secret.SetToken/SetRegistry` (stdin, no argv exposure), `secret.Import/ImportAll` |
 | Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
 | SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.TargetFor(name)` |
+| Skills | `skillstore.Import(ctx, c, skillstore.WithDryRun())` — shared agent skills store (v0.37.0) |
 
 Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`, `WithAutoStart`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
-`WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`.
+`WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`,
+`WithPublish` (`-p`, v0.37.0). Remove option: `WithForce` (removes an active session).
 
-## Gotchas (verified against sandboxd v0.35.0)
+## Gotchas (verified against sandboxd v0.37.0)
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
@@ -72,26 +74,35 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   never fail the core CPU/mem snapshot.
 - **`SaveTemplate` requires a stopped sandbox** — call `sb.Stop(ctx)` first, or it fails on a
   non-interactive stop prompt.
-- **`policy.List` → `[]PolicyRule`** reads `sbx policy ls --json` (v0.35.0 dropped the flat
-  per-rule table); **`secret.List` → `*Secrets`** still parses the CLI table (no `--json`
-  upstream). Drift returns `client.ErrUnexpectedFormat`. Use `policy.ListRaw` / `secret.ListRaw`
-  for raw text; `policy.Profiles` stays raw text.
+- **`secret.List` → `*Secrets`** still parses the CLI table (no `--json` upstream); a format
+  change returns `client.ErrUnexpectedFormat`. Use `secret.ListRaw` for raw text; `policy.Profiles`
+  stays raw text too.
 - **`secret.SetCustom` is experimental** and exposes the value in host process listings — for
-  headless agent credentials prefer `exec.WithEnv`.
+  headless agent credentials prefer `exec.WithEnv`. `secret.SetToken`/`SetRegistry` do not have
+  this problem: both write the secret to the child process's stdin instead of an argument, so it
+  never appears in the process list.
+- **`SetToken`/`SetRegistry`/`Import` error on an existing entry** instead of silently no-op'ing —
+  without `--force`, sbx's own overwrite prompt reads EOF from non-interactive stdin and exits 0
+  having stored nothing. Pass `WithOverwrite()`/`WithOverwriteExisting()` to replace. `SetCustom`
+  has no such check.
 - **`settings`/`ssh` mutations are fire-and-forget shell-outs** — `settings.Set`,
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and
   return before the daemon's ~5s hot-reload. `settings.Get/List` and `ssh.Enabled`
   read via `--json`. `ssh.Enable` sets only `feature.ssh` (also needs
   `platform.allowExperimentalFeatures`, default true). SSH connects by hostname
   (`ssh <name>.sbx`); v0.35.0 dropped the `ssh.port` loopback model.
-- **`cp` and `UnpublishPort` shell out** (no daemon REST path) — they need the `sbx` binary.
+- **`CopyFrom` auto-starts a stopped sandbox** — matching `sbx cp`'s own behaviour, unlike `exec`
+  which needs an explicit `WithAutoStart()`. `CopyTo` still shells out to the `sbx` binary.
+- **`policy.List` is REST and always requests `type=all`** — `GET /policy/network/rules`;
+  omitting `type=all` would silently drop filesystem rules with no error.
 - **A non-zero agent/command exit is `(code, nil)`** — only spawn/transport failures are errors.
   Check the returned code.
 - **Don't call `client.Reset`** unless intended: it wipes all sandboxes and daemon state.
-- **`WithStrictVersion()` is unreliable on non-release daemons** — `POST /version` can report
-  `"incompatible"` even for a version-matched daemon (`DaemonHealth.Release == false`). For a
-  dependable check, compare `DaemonHealth.Version`/`APIVersion` to `client.ClientVersion` /
-  `client.TestedAPIVersion`. SDK is pinned to sbx v0.35.0 / api 0.22.0.
+- **`WithStrictVersion()` and `CheckVersion` are deprecated** (see ADR 0004) — `api_version` bumps
+  on every `sbx` release, so a strict compare fires on every upgrade, and upstream removed
+  `POST /version` in v0.37.0, so `CheckVersion` can no longer succeed. For a runtime check, compare
+  `DaemonHealth.Version`/`APIVersion` to `client.ClientVersion`/`client.TestedAPIVersion` yourself.
+  SDK is pinned to sbx v0.37.0 / api 0.24.0.
 
 ## Errors
 

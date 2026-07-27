@@ -16,6 +16,7 @@ type Definition struct {
 	profile    string
 	template   string
 	clone      bool
+	publish    []string // -p specs, applied at create time
 	agentArgs  []string
 	stdin      io.Reader
 	stdout     io.Writer
@@ -56,6 +57,9 @@ func (d *Definition) toCreateArgs() ([]string, error) {
 	if d.template != "" {
 		args = append(args, "--template", d.template)
 	}
+	for _, spec := range d.publish {
+		args = append(args, "-p", spec)
+	}
 	if d.clone {
 		args = append(args, "--clone")
 	}
@@ -88,6 +92,9 @@ func (d *Definition) toRunArgs() ([]string, error) {
 	}
 	if d.template != "" {
 		args = append(args, "--template", d.template)
+	}
+	for _, spec := range d.publish {
+		args = append(args, "-p", spec)
 	}
 	if d.clone {
 		args = append(args, "--clone")

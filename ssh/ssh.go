@@ -1,14 +1,23 @@
-// Package ssh manages the sandboxd SSH endpoint (EXPERIMENTAL upstream). It composes
-// over the settings package for the feature flag (feature.ssh) and shells out to
-// `sbx ssh setup` for local client provisioning. Enabling requires experimental
-// features (platform.allowExperimentalFeatures, default true); this package does
-// not modify that host-wide setting.
+// Package ssh manages the sandboxd SSH endpoint (EXPERIMENTAL upstream). It
+// composes over the settings package for the feature flag (feature.ssh) and
+// shells out to `sbx setup ssh` for local client provisioning.
 //
-// In sbx v0.35.0 the connection model changed: the sandbox name is the SSH
-// hostname ("<name>.sbx"), routed through a single wildcard "Host *.sbx" block that
-// `sbx ssh setup` writes. There is no loopback port or client key — auth is the
-// daemon's unix-socket OS boundary plus an active Docker login. The old ssh.port
-// setting and loopback model are gone.
+// As of sbx v0.37.0 SSH is a documented feature and feature.ssh defaults to
+// enabled, so Enable is usually unnecessary; it remains for hosts where the
+// flag was explicitly turned off. Enabling also requires experimental features
+// (platform.allowExperimentalFeatures, default true), which this package does
+// not modify.
+//
+// Connection model: the sandbox name is the SSH hostname ("<name>.sbx"), routed
+// through a single wildcard "Host *.sbx" block. There is no loopback port and
+// no client key — authentication is the daemon's unix-socket OS boundary plus
+// an active Docker login. Connecting starts the daemon and the sandbox on
+// demand.
+//
+// The ssh.acceptEnv setting allowlists which client environment variables are
+// forwarded into the sandbox; read it with settings.Get. It is security
+// relevant — it defaults to a list including ANTHROPIC_API_KEY, OPENAI_API_KEY
+// and GITHUB_TOKEN.
 package ssh
 
 import (
@@ -22,12 +31,12 @@ import (
 
 const featureKey = "feature.ssh"
 
-// hostSuffix is the ".sbx" suffix `sbx ssh setup` routes by default (Host *.sbx).
+// hostSuffix is the ".sbx" suffix `sbx setup ssh` routes by default (Host *.sbx).
 // ponytail: hardcoded to the setup default; TargetFor takes no alias override.
 const hostSuffix = ".sbx"
 
 // Target is the SSH connection info for a sandbox: the sandbox name plus the
-// ".sbx" suffix that `sbx ssh setup` routes through the daemon.
+// ".sbx" suffix that `sbx setup ssh` routes through the daemon.
 type Target struct {
 	Host string // "<sandbox-name>.sbx"
 }
@@ -43,9 +52,12 @@ func (t Target) Command() string {
 	return "ssh " + t.Host
 }
 
-// TargetFor builds connection info for a sandbox. It is a pure builder — no
-// existence check. With ssh.autoCreate (default true) the sandbox is created on
-// connect, so a target for any name is valid.
+// TargetFor builds connection info for a sandbox. It is a pure builder — it
+// performs no existence check.
+//
+// Connecting starts both the daemon and the target sandbox if they are not
+// already running. The sandbox must exist, unless ssh.autoCreate is enabled —
+// it defaults to false, so a target for an unknown name fails to connect.
 func TargetFor(sandboxName string) Target {
 	return Target{Host: sandboxName + hostSuffix}
 }
@@ -53,6 +65,8 @@ func TargetFor(sandboxName string) Target {
 // Enable turns on the SSH endpoint (settings set feature.ssh true). Fire-and-forget:
 // the daemon hot-reloads within ~5s. Requires platform.allowExperimentalFeatures
 // (default true), which Enable does not modify.
+//
+// feature.ssh defaults to enabled as of sbx v0.37.0, so this is usually a no-op.
 func Enable(ctx context.Context, c *client.Client) error {
 	return settings.Set(ctx, c, featureKey, "true")
 }

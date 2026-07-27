@@ -8,15 +8,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSetupArgs(t *testing.T) {
+func TestSetup_UsesDocumentedSetupSSHPath(t *testing.T) {
 	c, argFile := newFakeSbx(t, 0, "", "")
-	ctx := context.Background()
 
-	require.NoError(t, Setup(ctx, c))
-	require.NoError(t, Setup(ctx, c, WithAlias("work")))
+	require.NoError(t, Setup(context.Background(), c))
 
-	args, _ := os.ReadFile(argFile)
-	lines := string(args)
-	require.Contains(t, lines, "ssh setup\n") // no options -> bare
-	require.Contains(t, lines, "ssh setup --alias work")
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "setup ssh\n",
+		"sbx ssh setup is an undocumented hidden alias; sbx setup ssh is the documented path")
+	require.NotContains(t, string(args), "ssh setup")
+}
+
+func TestSetup_AliasIsStillPassed(t *testing.T) {
+	c, argFile := newFakeSbx(t, 0, "", "")
+
+	require.NoError(t, Setup(context.Background(), c, WithAlias("work")))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "setup ssh --alias work")
 }
