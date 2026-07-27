@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -35,14 +36,47 @@ func (s *Sandbox) PublishPort(ctx context.Context, p Port) ([]Port, error) {
 	return out, nil
 }
 
-// UnpublishPort removes a published port. No REST unpublish path is confirmed in
-// v0.35.0, so this shells out to `sbx ports {name} --unpublish SPEC`, where spec is
-// the CLI port spec, e.g. "127.0.0.1:18080:8080/tcp" or "18080:8080".
+// UnpublishPort removes a published port, given the CLI port spec form
+// [[HOST_IP:]HOST_PORT:]SANDBOX_PORT[/PROTOCOL] — e.g. "127.0.0.1:18080:8080/tcp"
+// or "18080:8080" (REST POST /sandbox/{name}/ports/unpublish; the body is a bare
+// array of port keys).
+//
+// A loopback publish creates one key per address family, so when the spec names
+// no host address every published key matching the sandbox port (and protocol,
+// when given) is released — one call still fully unpublishes a port.
 func (s *Sandbox) UnpublishPort(ctx context.Context, spec string) error {
-	r, err := s.cli.Runner()
+	want, err := parsePortSpec(spec)
 	if err != nil {
 		return err
 	}
-	_, err = r.Capture(ctx, nil, "ports", s.info.Name, "--unpublish", spec)
-	return err
+
+	keys := []Port{want}
+	if want.HostIP == "" {
+		published, err := s.Ports(ctx)
+		if err != nil {
+			return err
+		}
+		keys = keys[:0]
+		for _, p := range published {
+			if p.SandboxPort != want.SandboxPort {
+				continue
+			}
+			if want.Protocol != "" && p.Protocol != want.Protocol {
+				continue
+			}
+			if want.HostPort != 0 && p.HostPort != want.HostPort {
+				continue
+			}
+			keys = append(keys, p)
+		}
+		if len(keys) == 0 {
+			return fmt.Errorf("unpublish-port: no published port matches %q", spec)
+		}
+	}
+
+	route := "/sandbox/" + s.info.Name + "/ports/unpublish"
+	if err := s.cli.Transport().DoJSON(ctx, http.MethodPost, route, keys, nil); err != nil {
+		return client.MapError("unpublish-port", err)
+	}
+	return nil
 }
