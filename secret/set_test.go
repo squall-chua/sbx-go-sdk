@@ -147,6 +147,32 @@ func TestSetToken_ExistingSecretWithoutOverwriteIsRejected(t *testing.T) {
 	}
 }
 
+func TestSetToken_ExistingSecretInSameSandboxScopeIsRejected(t *testing.T) {
+	// The blocking tests above all use global scope; this pins the direction
+	// where a miss would re-open the original bug: a sandbox-scoped row must
+	// block a sandbox-scoped SetToken in that same scope. It also pins that
+	// List passes the scope through to `ls` — the fake's recorded args are
+	// the only thing distinguishing "ls of my-sandbox" from "ls of everything".
+	const fixture = "SCOPE        TYPE     NAME    SECRET\n" +
+		"my-sandbox   service  openai  testte**\n"
+	dir := t.TempDir()
+	argFile := filepath.Join(dir, "args.txt")
+	c := stdinRecordingClient(t, argFile, filepath.Join(dir, "stdin.txt"), fixture)
+
+	err := SetToken(context.Background(), c, "my-sandbox", "openai", "sk-test")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "WithOverwrite")
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "secret ls my-sandbox",
+		"List must pass the sandbox scope through to the ls lookup, not just query the default")
+	for _, line := range strings.Split(string(args), "\n") {
+		require.NotContains(t, line, "secret set",
+			"the CLI must never be invoked for secret set when the pre-flight check rejects")
+	}
+}
+
 func TestSetToken_ExistingSecretWithOverwriteProceeds(t *testing.T) {
 	dir := t.TempDir()
 	argFile := filepath.Join(dir, "args.txt")

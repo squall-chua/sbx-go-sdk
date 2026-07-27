@@ -29,9 +29,13 @@ func WithOverwriteExisting() ImportOption { return func(c *importConfig) { c.ove
 // (there is no scope flag or positional).
 //
 // An entry already stored for service (global scope) is an error unless
-// WithOverwriteExisting is passed — checked before the CLI is invoked, so a
-// pending import is never consumed as the answer to the CLI's own overwrite
-// prompt. Use ImportAll to import every detected variable.
+// WithOverwriteExisting is passed — checked before the CLI is invoked.
+// Unlike SetToken/SetRegistry, runImport pipes nothing to stdin, so the risk
+// here isn't a piped value being read as the prompt's answer: without
+// --force the prompt still blocks on non-interactive stdin, and sbx cancels
+// and exits 0, silently skipping the import. That check itself depends on
+// `sbx secret ls` succeeding; if it fails, the import is blocked rather than
+// risking that silent no-op. Use ImportAll to import every detected variable.
 func Import(ctx context.Context, c *client.Client, service string, opts ...ImportOption) error {
 	if service == "" {
 		return errors.New("secret import: service must not be empty (use ImportAll to import everything detected)")

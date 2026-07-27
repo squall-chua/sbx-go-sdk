@@ -35,6 +35,12 @@ func scopeArg(scope string) string {
 // SetCustom creates/updates a custom secret in scope ("" = global). EXPERIMENTAL.
 // The Value is passed as a `sbx secret set-custom --value` CLI argument, so it is
 // briefly visible in host process listings.
+//
+// Unlike SetToken, SetRegistry and Import, SetCustom has no pre-flight
+// existing-entry check and pipes nothing to stdin. If `set-custom` prompts to
+// overwrite an existing entry, it may hit the same silent-cancel-exit-0 shape
+// those three were fixed for (see README's "Known deviations & limitations")
+// — not verified either way; fixing it is out of scope here.
 func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecret) error {
 	args := []string{"secret", "set-custom", scopeArg(scope)}
 	if s.Host != "" {
@@ -89,6 +95,9 @@ type Secrets struct {
 
 // List returns the parsed `sbx secret ls [SCOPE]` output. A format change in the
 // CLI's tables yields client.ErrUnexpectedFormat — use ListRaw to fall back.
+//
+// An empty scope lists every scope, not just global — the CLI's `-g` flag is
+// the only way to ask for global-only, and List has no way to pass it.
 func List(ctx context.Context, c *client.Client, scope string) (*Secrets, error) {
 	raw, err := ListRaw(ctx, c, scope)
 	if err != nil {
@@ -97,7 +106,9 @@ func List(ctx context.Context, c *client.Client, scope string) (*Secrets, error)
 	return parseSecretList(raw)
 }
 
-// ListRaw returns the raw `sbx secret ls [SCOPE]` text.
+// ListRaw returns the raw `sbx secret ls [SCOPE]` text. An empty scope lists
+// every scope, not just global — only `-g` means global-only, and ListRaw has
+// no way to request that.
 func ListRaw(ctx context.Context, c *client.Client, scope string) (string, error) {
 	args := []string{"secret", "ls"}
 	if scope != "" {
@@ -147,10 +158,20 @@ func parseSecretList(raw string) (*Secrets, error) {
 
 // checkNotStored returns an error if scope already has a Stored row of type
 // typ named name and overwrite is false — used before SetToken, SetRegistry
-// and Import invoke the CLI, so a pre-existing entry is rejected without ever
-// reaching the CLI's own y/N overwrite prompt (which would otherwise read its
-// answer from the same stdin the SDK is piping the secret value into). verb
-// and optionName customize the error message per caller.
+// and Import invoke the CLI, so a pre-existing entry is rejected before ever
+// reaching the CLI's own y/N overwrite prompt. Without --force, that prompt
+// blocks on non-interactive stdin and sbx cancels, exiting 0 — a silent
+// no-op the caller would otherwise mistake for success. For SetToken and
+// SetRegistry there's a second reason: they pipe the secret value to stdin
+// (via CaptureStdin), so the prompt would otherwise read that piped value as
+// its own answer; Import pipes nothing (it uses Capture), so only the
+// silent-cancel-exit-0 risk applies there. verb and optionName customize the
+// error message per caller.
+//
+// This check depends on `sbx secret ls` succeeding: if List fails (e.g.
+// client.ErrUnexpectedFormat from a CLI table format change), the write is
+// blocked rather than risking the silent no-op above — see the wrapped error
+// below.
 //
 // List(ctx, c, "") maps to bare `sbx secret ls` — the CLI lists every scope,
 // not global-only (`-g` is the only way to ask the CLI for global-only) — so
@@ -163,7 +184,7 @@ func checkNotStored(ctx context.Context, c *client.Client, scope, typ, name stri
 	}
 	existing, err := List(ctx, c, scope)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: cannot check existing secrets: %w", verb, err)
 	}
 	for _, s := range existing.Stored {
 		if s.Scope == scope && s.Type == typ && s.Name == name {

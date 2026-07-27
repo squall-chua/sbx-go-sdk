@@ -30,6 +30,9 @@ func WithOverwrite() SetOption { return func(c *setConfig) { c.overwrite = true 
 // An entry already stored for service in scope is an error unless
 // WithOverwrite is passed — checked before the CLI is invoked, so a pending
 // secret is never consumed as the answer to the CLI's own overwrite prompt.
+// That check itself depends on `sbx secret ls` succeeding; if it fails (e.g.
+// a CLI table format change), the write is blocked rather than risking a
+// silent no-op.
 func SetToken(ctx context.Context, c *client.Client, scope, service, token string, opts ...SetOption) error {
 	if service == "" {
 		return errors.New("secret set: service must not be empty")
@@ -80,6 +83,9 @@ type RegistryCredential struct {
 // An entry already stored for cred.Host in scope is an error unless
 // WithOverwrite is passed — checked before the CLI is invoked, so a pending
 // password is never consumed as the answer to the CLI's own overwrite prompt.
+// That check itself depends on `sbx secret ls` succeeding; if it fails (e.g.
+// a CLI table format change), the write is blocked rather than risking a
+// silent no-op.
 func SetRegistry(ctx context.Context, c *client.Client, scope string, cred RegistryCredential, opts ...SetOption) error {
 	if cred.Host == "" {
 		return errors.New("secret set: registry host must not be empty")
