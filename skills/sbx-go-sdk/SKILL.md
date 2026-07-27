@@ -61,7 +61,7 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
 `WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`.
 
-## Gotchas (verified against sandboxd v0.35.0)
+## Gotchas (verified against sandboxd v0.37.0)
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
@@ -84,14 +84,15 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   read via `--json`. `ssh.Enable` sets only `feature.ssh` (also needs
   `platform.allowExperimentalFeatures`, default true). SSH connects by hostname
   (`ssh <name>.sbx`); v0.35.0 dropped the `ssh.port` loopback model.
-- **`cp` and `UnpublishPort` shell out** (no daemon REST path) — they need the `sbx` binary.
+- **`cp` and `UnpublishPort` shell out** — they need the `sbx` binary. REST paths for both landed
+  in v0.37.0 but the SDK has not migrated to them yet.
 - **A non-zero agent/command exit is `(code, nil)`** — only spawn/transport failures are errors.
   Check the returned code.
 - **Don't call `client.Reset`** unless intended: it wipes all sandboxes and daemon state.
 - **`WithStrictVersion()` is unreliable on non-release daemons** — `POST /version` can report
   `"incompatible"` even for a version-matched daemon (`DaemonHealth.Release == false`). For a
   dependable check, compare `DaemonHealth.Version`/`APIVersion` to `client.ClientVersion` /
-  `client.TestedAPIVersion`. SDK is pinned to sbx v0.35.0 / api 0.22.0.
+  `client.TestedAPIVersion`. SDK is pinned to sbx v0.37.0 / api 0.24.0.
 
 ## Errors
 
