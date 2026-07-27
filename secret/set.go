@@ -14,10 +14,10 @@ type setConfig struct{ overwrite bool }
 type SetOption func(*setConfig)
 
 // WithOverwrite replaces an existing stored entry without confirmation
-// (`--force`). Upstream's `--help` describes `--force` as applying "when
-// --token is used"; SetToken no longer passes `--token` (the token goes
-// through stdin instead), so whether `--force` still affects the stdin path is
-// unconfirmed. It is passed regardless — harmless if upstream ignores it here.
+// (`--force`). Confirmed by a live `sbx secret set` run: `--force` works on
+// the stdin path (piping a value in, no `--token`). Upstream's `--help` claims
+// `--force` applies only "when --token is used" — that help text is wrong;
+// don't let it override this observed behavior.
 func WithOverwrite() SetOption { return func(c *setConfig) { c.overwrite = true } }
 
 // SetToken stores a service secret, e.g. service "anthropic" or "github"
@@ -26,6 +26,10 @@ func WithOverwrite() SetOption { return func(c *setConfig) { c.overwrite = true 
 // The token is written to the child's stdin and never appears in the argument
 // vector, so it is not visible in the host process list. Use SetRegistry for
 // registry credentials, which has the same property.
+//
+// An entry already stored for service in scope is an error unless
+// WithOverwrite is passed — checked before the CLI is invoked, so a pending
+// secret is never consumed as the answer to the CLI's own overwrite prompt.
 func SetToken(ctx context.Context, c *client.Client, scope, service, token string, opts ...SetOption) error {
 	if service == "" {
 		return errors.New("secret set: service must not be empty")
@@ -36,6 +40,9 @@ func SetToken(ctx context.Context, c *client.Client, scope, service, token strin
 	var cfg setConfig
 	for _, o := range opts {
 		o(&cfg)
+	}
+	if err := checkNotStored(ctx, c, scope, "service", service, cfg.overwrite, "secret set", "WithOverwrite"); err != nil {
+		return err
 	}
 
 	args := []string{"secret", "set"}
@@ -69,6 +76,10 @@ type RegistryCredential struct {
 //
 // The password is written to the child's stdin and never appears in the
 // argument vector, so it is not visible in the host process list.
+//
+// An entry already stored for cred.Host in scope is an error unless
+// WithOverwrite is passed — checked before the CLI is invoked, so a pending
+// password is never consumed as the answer to the CLI's own overwrite prompt.
 func SetRegistry(ctx context.Context, c *client.Client, scope string, cred RegistryCredential, opts ...SetOption) error {
 	if cred.Host == "" {
 		return errors.New("secret set: registry host must not be empty")
@@ -79,6 +90,9 @@ func SetRegistry(ctx context.Context, c *client.Client, scope string, cred Regis
 	var cfg setConfig
 	for _, o := range opts {
 		o(&cfg)
+	}
+	if err := checkNotStored(ctx, c, scope, "registry", cred.Host, cfg.overwrite, "secret set", "WithOverwrite"); err != nil {
+		return err
 	}
 
 	args := []string{"secret", "set"}

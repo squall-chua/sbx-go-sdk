@@ -25,13 +25,23 @@ func WithOverwriteExisting() ImportOption { return func(c *importConfig) { c.ove
 
 // Import stores the secret detected in the host environment for one named
 // service, e.g. "openai" reads OPENAI_API_KEY (`sbx secret import SERVICE`).
+// Per `sbx secret import --help`, this always writes to the global keychain
+// (there is no scope flag or positional).
 //
-// A named-service import fails if the entry already exists and no --force was
-// passed; use WithOverwriteExisting to opt into replacing it. Use ImportAll to
-// import every detected variable.
+// An entry already stored for service (global scope) is an error unless
+// WithOverwriteExisting is passed — checked before the CLI is invoked, so a
+// pending import is never consumed as the answer to the CLI's own overwrite
+// prompt. Use ImportAll to import every detected variable.
 func Import(ctx context.Context, c *client.Client, service string, opts ...ImportOption) error {
 	if service == "" {
 		return errors.New("secret import: service must not be empty (use ImportAll to import everything detected)")
+	}
+	var cfg importConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	if err := checkNotStored(ctx, c, "", "service", service, cfg.overwrite, "secret import", "WithOverwriteExisting"); err != nil {
+		return err
 	}
 	return runImport(ctx, c, []string{service}, false, opts...)
 }

@@ -145,6 +145,34 @@ func parseSecretList(raw string) (*Secrets, error) {
 	return out, nil
 }
 
+// checkNotStored returns an error if scope already has a Stored row of type
+// typ named name and overwrite is false — used before SetToken, SetRegistry
+// and Import invoke the CLI, so a pre-existing entry is rejected without ever
+// reaching the CLI's own y/N overwrite prompt (which would otherwise read its
+// answer from the same stdin the SDK is piping the secret value into). verb
+// and optionName customize the error message per caller.
+//
+// List(ctx, c, "") maps to bare `sbx secret ls` — the CLI lists every scope,
+// not global-only (`-g` is the only way to ask the CLI for global-only) — so
+// this filters rows by s.Scope == scope itself rather than trusting the
+// listing to already be scope-restricted; both use the same "" == global
+// convention, so the comparison is exact.
+func checkNotStored(ctx context.Context, c *client.Client, scope, typ, name string, overwrite bool, verb, optionName string) error {
+	if overwrite {
+		return nil
+	}
+	existing, err := List(ctx, c, scope)
+	if err != nil {
+		return err
+	}
+	for _, s := range existing.Stored {
+		if s.Scope == scope && s.Type == typ && s.Name == name {
+			return fmt.Errorf("%s: %q already exists in this scope; pass %s() to replace it", verb, name, optionName)
+		}
+	}
+	return nil
+}
+
 // splitCustomSection splits raw at the "CUSTOM SECRETS" label line into the
 // standard-table text and the custom-table text. With no label, everything is the
 // standard section.
