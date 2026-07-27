@@ -60,7 +60,7 @@ Status values: **covered** · **gap** (upstream feature the SDK does not expose)
 | `GET /policy/network/profiles` | v0.37.0 | `policy.Profiles` | gap — raw text; no data to model, see ADR 0002 |
 | `POST /daemon/reset` | v0.37.0 | `Client.Reset` | covered |
 | `DOCKER_SANDBOXES_PROXY=system` | v0.37.0 | — | n/a — env var |
-| Governance org support messages | v0.37.0 | — | gap — no governance data to verify against |
+| Governance org support messages | v0.37.0 | `policy.Check` → `Authorization.Governance` | covered — fields decoded (`Active`, `Organization`, `OrganizationUnavailable`, `LastSyncedStatus`, `LastSyncedMessage`); live behaviour unverified, no governed org on this host |
 | `sbx secret set --oauth` | v0.37.0 | — | gap — interactive, `openai`/global only |
 
 ## Create-request fields the daemon accepts but the CLI cannot pass
