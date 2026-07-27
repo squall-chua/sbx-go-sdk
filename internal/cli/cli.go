@@ -67,6 +67,30 @@ func (r *Runner) Capture(ctx context.Context, extraEnv []string, args ...string)
 	return out.String(), nil
 }
 
+// CaptureStdin runs `sbx args...` like Capture, but wires stdin to the given
+// reader so flags such as `secret set --password-stdin` can be fed a value
+// without exposing it in the argument vector. A nil stdin reads as empty.
+func (r *Runner) CaptureStdin(ctx context.Context, stdin io.Reader, extraEnv []string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, r.bin, args...)
+	cmd.Env = append(os.Environ(), extraEnv...)
+	if stdin == nil {
+		stdin = bytes.NewReader(nil)
+	}
+	cmd.Stdin = stdin
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return out.String(), &Error{Args: args, ExitCode: ee.ExitCode(), Stderr: errb.String()}
+		}
+		return out.String(), &Error{Args: args, ExitCode: -1, Stderr: err.Error()}
+	}
+	return out.String(), nil
+}
+
 // Stdio overrides the child's stdio; zero values inherit os.Stdin/out/err.
 type Stdio struct {
 	In  io.Reader
