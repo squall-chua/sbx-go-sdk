@@ -280,6 +280,14 @@ binary's DWARF. Two types matter:
 The two shapes differ. Flat `template` / `binary` / `runOptions` keys are rejected on input ("use
 the 'sandbox:' block instead") yet emitted on output, derived from the `sandbox:` block.
 
+**Method note: DWARF carries no Go struct tags at all** — confirmed empirically (a throwaway
+binary's member DIEs expose `Name`, `Type`, `DataMemberLoc`, and one Go-vendor boolean, nothing
+tag-shaped), not just taken on faith from `internal/tools/dwarfgen/main.go`'s header comment. So
+DWARF can confirm a field's Go name, never its JSON tag; `Manifest.Build`'s `json:"build,omitempty"`
+tag was instead confirmed by running `strings` on `/usr/bin/sbx` (a single occurrence, corroborated
+by four sibling `BuildConfig` tags matching DWARF field names one-for-one). Don't go looking for
+tags in DWARF output — they aren't there.
+
 `sandboxapi.SandboxInfo` has **no** kit field — 14 fields in DWARF, matching `types_gen.go` exactly.
 A sandbox's kit list is the container label `com.docker.sandbox.kits`, holding a JSON string array,
 returned inside `labels` by `GET /sandbox/{name}`.

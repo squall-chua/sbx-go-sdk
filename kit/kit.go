@@ -27,6 +27,10 @@ import (
 // Per ADR 0005 every field is present, strings and string slices are typed,
 // and struct-valued fields stay raw. Nine fields are only meaningful for
 // kind "sandbox" kits and are empty for a mixin.
+//
+// SchemaVersion "1" (legacy) kits decode the same way as "2": inspect --json's
+// output shape is identical, differing only in the SchemaVersion value itself.
+// Verified 2026-07-28 against sbx v0.37.0.
 type Manifest struct {
 	SchemaVersion string          `json:"schemaVersion"`
 	Kind          string          `json:"kind"` // "sandbox" or "mixin"
@@ -72,7 +76,9 @@ type Info struct {
 //
 // ref may be a local directory, a ZIP file, a git repository, or an OCI
 // reference. A remote reference the kit.allowedSources setting forbids is
-// refused by the CLI before any network access.
+// refused by the CLI before any network access, as the CLI's own error — not
+// as client.ErrKitRejected, which only Validate produces. The refusal is
+// plain text on stderr, not JSON, even with --json set.
 func Inspect(ctx context.Context, c *client.Client, ref string) (Info, error) {
 	r, err := c.Runner()
 	if err != nil {
@@ -143,7 +149,15 @@ func Pack(ctx context.Context, c *client.Client, dir, out string) error {
 // ZIP-based artifact, "2" a tar+gzip layer carrying the spec in the manifest
 // config blob. Authentication uses the Docker credential store.
 //
-// Unverified: this path has never been run against a real registry, because
+// Unlike Inspect and Pull, Push does NOT consult kit.allowedSources: a
+// forbidden reference is not refused up front. Instead the CLI opens real
+// connections to registry infrastructure and, against an unreachable
+// endpoint, retries indefinitely with no output, even with --debug. Verified
+// 2026-07-28 against sbx v0.37.0. Callers must pass a ctx with a deadline —
+// the SDK runs the CLI via exec.CommandContext with a Cancel that signals the
+// process (internal/cli/cli.go:61,67), so cancelling ctx does terminate it.
+//
+// Unverified: this path has never completed against a real registry, because
 // no registry was reachable when it was written.
 func Push(ctx context.Context, c *client.Client, dir, ref string) error {
 	r, err := c.Runner()
@@ -160,6 +174,10 @@ func Push(ctx context.Context, c *client.Client, dir, ref string) error {
 // The registry must support HTTPS. Registry secrets set with
 // `sbx secret set --registry` take priority over the Docker credential store.
 // As with Pack, out is required rather than derived.
+//
+// Unlike Push, Pull does enforce kit.allowedSources: a forbidden reference is
+// refused instantly, before any network access. Verified 2026-07-28 against
+// sbx v0.37.0.
 //
 // Unverified: this path has never been run against a real registry, because
 // no registry was reachable when it was written.

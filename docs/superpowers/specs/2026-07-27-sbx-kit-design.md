@@ -336,12 +336,40 @@ Stated so nobody mistakes silence for coverage:
 
 - **`Push` and `Pull` against a real registry.** There is no OCI registry on this host. Both ship
   with argument-vector unit tests only.
+  **Refined 2026-07-28** (`.superpowers/sdd/2026-07-27-sbx-kit-support/probe-findings.md`): still
+  not verified end-to-end, but the blocking mechanism is now characterized and it is not what this
+  design assumed. `Pull` (like `Inspect`) is blocked by `kit.allowedSources` instantly on this
+  host. `Push` bypasses the allowlist entirely: against a forbidden-and-unreachable target it opens
+  real connections to registry infrastructure and then retries indefinitely, with no output even
+  under `--debug`. A reachable registry is still needed to observe either succeeding.
 - **Whether `kit add` behaves differently on a stopped sandbox.** Only a running one was tested.
+  **Resolved 2026-07-28** (`.superpowers/sdd/2026-07-27-sbx-kit-support/probe-findings.md`):
+  `kit add` on a stopped sandbox auto-starts it ("Sandbox ... started successfully"), then runs the
+  identical recreate flow. It never refuses and never leaves the sandbox stopped.
 - **Git references.** `kit.allowedSources` refused them before they resolved.
+  **Resolved 2026-07-28** (`.superpowers/sdd/2026-07-27-sbx-kit-support/probe-findings.md`):
+  re-confirmed for `validate`, and extended to `inspect` — both refuse a forbidden git reference
+  instantly, with no evidence of a clone attempt. `inspect --json`'s refusal is also plain text on
+  stderr, not JSON.
 - **Legacy `schemaVersion: "1"` kits.** Only `"2"` was exercised.
+  **Resolved 2026-07-28** (`.superpowers/sdd/2026-07-27-sbx-kit-support/probe-findings.md`): a
+  `"1"` kit validates and inspects fine, and `inspect --json`'s output shape is identical to a
+  `"2"` kit's — only the `schemaVersion` value differs. `kit.Info`/`kit.Manifest` decode it
+  unchanged.
 - **Whether `create --kit` accepts git references at all.** Its help says "directory, ZIP, or OCI";
   `kit add`'s help adds git.
+  **Resolved 2026-07-28** (`.superpowers/sdd/2026-07-27-sbx-kit-support/probe-findings.md`):
+  `create --kit` does accept a git reference — it reaches the identical `resolve kits:` allowlist
+  stage `kit add` reaches, refusing with the same message, not a format error. `--help` is
+  incomplete, not authoritative. No sandbox is created when the reference is refused.
 - **The `build` JSON tag** on `Manifest`, inferred rather than observed.
+  **Resolved 2026-07-28** (`.superpowers/sdd/2026-07-27-sbx-kit-support/probe-findings.md`), with a
+  correction to the method: DWARF carries no struct tags at all (confirmed empirically), so the tag
+  could never have come from the DWARF pass that confirmed the other 14 fields. It is instead
+  confirmed by a single occurrence of `json:"build,omitempty"` found via `strings` on the binary,
+  corroborated by four sibling `BuildConfig` tags matching DWARF field names one-for-one. Real
+  `inspect --json` output containing a `build` key remains unobtainable on this host:
+  `sandbox.build` is refused pre-flight as "accepted in the schema but not yet implemented".
 
 ## Non-goals
 

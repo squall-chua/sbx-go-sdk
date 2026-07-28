@@ -99,8 +99,15 @@ func TestSmoke_AddKitRecordsAbsolutePath(t *testing.T) {
 	// Deliberately relative. This is the call that used to poison the list.
 	require.NoError(t, sb.AddKit(ctx, "./fixture-kit"))
 
+	// absLocal resolves via filepath.Abs, which uses the resolved working
+	// directory, not necessarily t.TempDir()'s own path — on a host where the
+	// temp directory sits behind a symlink (e.g. macOS's /tmp -> /private/tmp)
+	// the two differ. Resolve dir the same way before comparing.
+	wantDir, err := filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+
 	kits, err := sb.Kits(ctx)
 	require.NoError(t, err)
-	require.Contains(t, kits, dir,
+	require.Contains(t, kits, wantDir,
 		"the daemon recorded a path resolved against its own working directory")
 }

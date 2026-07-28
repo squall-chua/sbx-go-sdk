@@ -729,14 +729,19 @@ Verified live against `sandboxd` v0.37.0:
   builds that hostname.
 - **`kit.Inspect` does not report a kit's files.** `sbx kit inspect --json` omits the `files/`
   payload, although `kit.Pack` writes it into the artifact. `Info` is a report, not the kit.
-- **`kit.Push` and `kit.Pull` are unverified.** Neither has been run against a real OCI registry;
-  both ship with argument-vector unit tests only.
+- **`kit.Push` and `kit.Pull` are unverified.** Neither has completed against a real OCI registry;
+  both ship with argument-vector unit tests only. `Pull` does enforce `kit.allowedSources` (a
+  forbidden reference is refused instantly, like `Inspect`); `Push` does not — it opens real
+  network connections regardless of the reference's source and retries indefinitely against an
+  unreachable target, with no output even under `--debug`. Callers of `Push` should pass a `ctx`
+  with a deadline.
 - **Local kit paths are made absolute.** `AddKit` and `WithKit` rewrite a reference that exists on
   disk. The daemon records the kit list verbatim and resolves a relative path against its own
   working directory, which would record a path that does not exist and break every later add.
 - **`Sandbox.AddKit` cannot apply every kit.** The CLI refuses, pre-flight, any kit declaring
   `credentials`, `publishedPorts`, `volumes`, `commands.startup` or `commands.initFiles`; the
-  CLI's own remedy is to recreate the sandbox with `create --kit`.
+  CLI's own remedy is to recreate the sandbox from scratch via `sbx rm` + `sbx create --kit` to
+  use this kit.
 - **`Sandbox.Kits` reads a label.** If upstream renames `com.docker.sandbox.kits`, it returns empty
   rather than an error.
 

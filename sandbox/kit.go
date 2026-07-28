@@ -24,6 +24,14 @@ import (
 // The stat is a fact check, not a guess at reference grammar: an OCI
 // reference or a git URL does not stat, so it passes through and the CLI
 // stays the authority on what it is.
+//
+// This is the second place path resolution happens: Create and Run already
+// resolve workspace paths before building arguments (sandbox/lifecycle.go,
+// sandbox/run.go). Here it happens inside the argument builders themselves
+// (toCreateArgs, toRunArgs), not their callers, so those builders are not
+// pure and options_test.go needs t.Chdir to exercise them. Deliberate: moving
+// it up to Create/Run would duplicate the resolution loop across those two
+// functions instead of across the two builders.
 func absLocal(ref string) string {
 	if _, err := os.Stat(ref); err != nil {
 		return ref
@@ -59,6 +67,11 @@ func absLocal(ref string) string {
 // The CLI also refuses a sandbox using a legacy git worktree, and one created
 // before the kit-add recreate feature shipped. Neither refusal is classified
 // here: both arrive as the CLI's own error, carrying its explanation.
+//
+// AddKit auto-starts a stopped sandbox rather than refusing or leaving it
+// stopped: the CLI starts it, then runs the identical recreate flow. The
+// sandbox is always running afterward, regardless of its state beforehand.
+// Verified 2026-07-28 against sbx v0.37.0.
 func (s *Sandbox) AddKit(ctx context.Context, ref string) error {
 	r, err := s.cli.Runner()
 	if err != nil {
