@@ -34,15 +34,15 @@ Status values: **covered** · **gap** (upstream feature the SDK does not expose)
 | `sbx setup` (interactive host-config wizard) | v0.34.0 | — | gap — distinct command from `sbx secret import` below; detects host config and walks an interactive setup flow, not wrapped by the SDK |
 | `policy set-default` renamed `policy init` | v0.34.0 | `policy.SetDefault` | covered — calls `policy init` |
 | Kit source allowlist (`kit.allowedSources`) | v0.34.0 | `settings.Set` | covered — generic settings |
-| OCI v2 kit artifact streaming | v0.34.0 | — | deferred — kit spec |
+| OCI v2 kit artifact streaming | v0.34.0 | `kit.Push`, `kit.Pull` | covered — format follows the kit's `schemaVersion`; unverified against a live registry |
 | Published ports restored on restart | v0.34.0 | `sandbox.Ports` | n/a — daemon-side |
 | `sbx policy check network` | v0.35.0 | `policy.Check` | covered (v0.37.0 sync) — `sbx policy check --help` lists only the `network` subcommand, so there is no sibling to add a row for |
 | `sbx policy inspect` | v0.35.0 | `policy.InspectRaw` | covered (v0.37.0 sync) |
 | `policy ls --wide/--source/--decision/--include-inactive` | v0.35.0 | — | gap — fields are on `PolicyRule`; filter client-side. Whether `GET /policy/network/rules` can return inactive rules is **unresolvable from the client**: the endpoint ignores unknown query parameters (a deliberately bogus one returns a byte-identical 200 response), so `include_inactive=true` proves nothing, and every rule on a host without remote governance reports `status: active`. Settling it needs a daemon with an inactive rule. |
 | `sbx secret import` | v0.35.0 | `secret.Import` / `ImportAll` | covered (v0.37.0 sync) — `--force` stays opt-in via `WithOverwriteExisting`, unlike `skillstore.Import` which always forces; skill replacement is recoverable (the CLI backs up the folder first), a credential overwrite is not |
 | `sbx rm --force` for an active session | v0.35.0 | `Remove(WithForce())` | covered (v0.37.0 sync) |
-| `sbx inspect` (kits, auth mode, active sessions) | v0.35.0 | — | gap — not in `api.SandboxInfo` |
-| `sbx kit add` recreates container, applies kit policy | v0.35.0 | — | deferred — kit spec |
+| `sbx inspect` (kits, auth mode, active sessions) | v0.35.0 | `Sandbox.Kits` | partly covered — kits read from the `com.docker.sandbox.kits` label; auth mode and active sessions remain gaps, and `api.SandboxInfo` carries neither |
+| `sbx kit add` recreates container, applies kit policy | v0.35.0 | `Sandbox.AddKit` | covered — applies `environment.variables`, `caps.network`, `commands.install`, `agentContext`; the CLI refuses kits declaring `credentials`, `publishedPorts`, `volumes`, `commands.startup` or `commands.initFiles` |
 | `GET /health` removed; `/daemon/health` is liveness | v0.35.0 | `Client.Health` | covered |
 | `credential_sources` on `SandboxInfo` | v0.35.0 | `api.SandboxInfo` | covered |
 | SOCKS5 upstream proxy, `DOCKER_SANDBOXES_PROXY` | v0.35.0 | — | n/a — env var |
@@ -62,6 +62,8 @@ Status values: **covered** · **gap** (upstream feature the SDK does not expose)
 | `DOCKER_SANDBOXES_PROXY=system` | v0.37.0 | — | n/a — env var |
 | Governance org support messages | v0.37.0 | `policy.Check` → `Authorization.Governance` | covered — fields decoded (`Active`, `Organization`, `OrganizationUnavailable`, `LastSyncedStatus`, `LastSyncedMessage`); live behaviour unverified, no governed org on this host |
 | `sbx secret set --oauth` | v0.37.0 | — | gap — interactive, `openai`/global only |
+| `sbx kit inspect` / `validate` / `pack` | v0.34.0 | `kit.Inspect`, `kit.Validate`, `kit.Pack` | covered |
+| `sbx create --kit` / `sbx run --kit` | v0.34.0 | `sandbox.WithKit` | covered — emitted by both create and run |
 
 ## Create-request fields the daemon accepts but the CLI cannot pass
 

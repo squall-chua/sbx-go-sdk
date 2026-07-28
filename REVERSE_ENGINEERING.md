@@ -266,6 +266,28 @@ rather than through top-level REST paths. Note that symbol *absence* is not proo
 gone — the linker drops unreferenced builders, so probe with `OPTIONS` before concluding
 (an unmatched Echo route returns `404` with no `Allow` header; a matched one returns the header).
 
+### Kit spec schema
+
+The `spec.yaml` schema is `github.com/docker/sbx-kits-contrib/spec`, reachable from the `sbx`
+binary's DWARF. Two types matter:
+
+- **`SpecFile`** — what a kit author writes. 24 fields, eight named `Legacy*`. `credentials` and
+  `volumes` each accept either a list or a legacy map through custom unmarshalers. YAML decoding is
+  strict: an unknown key fails validation.
+- **`Artifact`** — what `sbx kit inspect --json` reports. 14 fields. Modelled as `kit.Info`, not
+  `kit.Artifact`, because it omits the `files/` payload that `kit pack` writes into the ZIP.
+
+The two shapes differ. Flat `template` / `binary` / `runOptions` keys are rejected on input ("use
+the 'sandbox:' block instead") yet emitted on output, derived from the `sandbox:` block.
+
+`sandboxapi.SandboxInfo` has **no** kit field — 14 fields in DWARF, matching `types_gen.go` exactly.
+A sandbox's kit list is the container label `com.docker.sandbox.kits`, holding a JSON string array,
+returned inside `labels` by `GET /sandbox/{name}`.
+
+The binary also carries `/sandbox/:name/swap-container`, the endpoint behind the `kit add` recreate.
+The SDK does not call it: `kit add` re-resolves the recorded kit list and runs the accept/refuse
+check around it, and shelling out gets both for free.
+
 ---
 
 ## 4. Reproduce the recon
