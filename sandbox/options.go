@@ -68,8 +68,8 @@ func WithPublish(specs ...string) Option {
 //
 // Prefer WithKit over AddKit for anything beyond a trivial kit: AddKit
 // refuses any kit declaring credentials, publishedPorts, volumes,
-// commands.startup or commands.initFiles, whereas creation applies all of
-// them.
+// commands.startup or commands.initFiles; the CLI's own remedy is to
+// recreate the sandbox with create --kit.
 //
 // Refs are otherwise passed straight through without validation; the CLI is
 // the authority on the grammar and rejects a malformed ref itself.

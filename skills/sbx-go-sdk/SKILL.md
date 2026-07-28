@@ -57,11 +57,12 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
 | SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.TargetFor(name)` |
 | Skills | `skillstore.Import(ctx, c, skillstore.WithDryRun())` — shared agent skills store (v0.37.0) |
+| Kit artifacts | `kit.Inspect/Validate/Pack/Push/Pull(ctx, c, ...)` — attach with `sandbox.WithKit` or `sb.AddKit` (v0.34.0) |
 
 Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`, `WithAutoStart`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
 `WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`,
-`WithPublish` (`-p`, v0.37.0). Remove option: `WithForce` (removes an active session).
+`WithPublish` (`-p`, v0.37.0), `WithKit` (`--kit`, v0.34.0). Remove option: `WithForce` (removes an active session).
 
 ## Gotchas (verified against sandboxd v0.37.0)
 

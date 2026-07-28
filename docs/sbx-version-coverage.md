@@ -8,8 +8,9 @@ version sync. `TestContract_VersionAlignment` points here when it detects drift.
 The v0.35.0 sync shipped while silently missing five v0.35.0 features — this
 table exists so that cannot happen quietly again.
 
-Status values: **covered** · **gap** (upstream feature the SDK does not expose)
-· **deferred** (planned, with a named spec) · **n/a** (needs no SDK surface).
+Status values: **covered** · **partly covered** (some sub-feature is a gap) ·
+**gap** (upstream feature the SDK does not expose) · **deferred** (planned,
+with a named spec) · **n/a** (needs no SDK surface).
 
 | Release | Daemon API |
 |---|---|
@@ -35,6 +36,8 @@ Status values: **covered** · **gap** (upstream feature the SDK does not expose)
 | `policy set-default` renamed `policy init` | v0.34.0 | `policy.SetDefault` | covered — calls `policy init` |
 | Kit source allowlist (`kit.allowedSources`) | v0.34.0 | `settings.Set` | covered — generic settings |
 | OCI v2 kit artifact streaming | v0.34.0 | `kit.Push`, `kit.Pull` | covered — format follows the kit's `schemaVersion`; unverified against a live registry |
+| `sbx kit inspect` / `validate` / `pack` | v0.34.0 | `kit.Inspect`, `kit.Validate`, `kit.Pack` | covered |
+| `sbx create --kit` / `sbx run --kit` | v0.34.0 | `sandbox.WithKit` | covered — emitted by both create and run |
 | Published ports restored on restart | v0.34.0 | `sandbox.Ports` | n/a — daemon-side |
 | `sbx policy check network` | v0.35.0 | `policy.Check` | covered (v0.37.0 sync) — `sbx policy check --help` lists only the `network` subcommand, so there is no sibling to add a row for |
 | `sbx policy inspect` | v0.35.0 | `policy.InspectRaw` | covered (v0.37.0 sync) |
@@ -62,8 +65,6 @@ Status values: **covered** · **gap** (upstream feature the SDK does not expose)
 | `DOCKER_SANDBOXES_PROXY=system` | v0.37.0 | — | n/a — env var |
 | Governance org support messages | v0.37.0 | `policy.Check` → `Authorization.Governance` | covered — fields decoded (`Active`, `Organization`, `OrganizationUnavailable`, `LastSyncedStatus`, `LastSyncedMessage`); live behaviour unverified, no governed org on this host |
 | `sbx secret set --oauth` | v0.37.0 | — | gap — interactive, `openai`/global only |
-| `sbx kit inspect` / `validate` / `pack` | v0.34.0 | `kit.Inspect`, `kit.Validate`, `kit.Pack` | covered |
-| `sbx create --kit` / `sbx run --kit` | v0.34.0 | `sandbox.WithKit` | covered — emitted by both create and run |
 
 ## Create-request fields the daemon accepts but the CLI cannot pass
 

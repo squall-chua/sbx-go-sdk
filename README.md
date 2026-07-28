@@ -236,6 +236,7 @@ func main() {
 | `settings` | `…/settings` | Read/write persistent sandboxd settings via `sbx settings … --json`. |
 | `ssh` | `…/ssh` | Experimental SSH endpoint: enable/disable, `setup`, connection targets — composed over `settings`. |
 | `skillstore` | `…/skillstore` | Import host agent-skill folders into sandboxd's shared skills store (experimental upstream). |
+| `kit` | `…/kit` | Read and package kit artifacts: inspect, validate, pack, push, pull (experimental upstream). |
 
 Two return types are re-exported aliases so external callers never need `internal/*`:
 `sandbox.Info` (daemon sandbox description) and `client.Runner` (the `sbx`-binary runner).
@@ -296,6 +297,7 @@ sb, err := sandbox.Create(ctx, c,
 	sandbox.WithProfile("balanced"),        // governance profile
 	sandbox.WithClone(),                    // run on an in-container git clone, not a bind mount
 	sandbox.WithPublish("8080"),            // publish ports atomically with create ("-p", sbx v0.37.0+)
+	sandbox.WithKit("./my-kit"),            // attach kit artifacts at creation ("--kit", sbx v0.34.0+)
 )
 ```
 
@@ -601,6 +603,7 @@ if errors.As(err, &apiErr) {
 | `client.ErrIncompatibleVersion` | `WithStrictVersion` and the daemon is incompatible. |
 | `client.ErrDaemonNotRunning` | `EnsureRunning` couldn't make the socket healthy in time. |
 | `client.ErrBinaryNotFound` | the `sbx` binary isn't on `PATH` (any shell-out op). |
+| `client.ErrKitRejected` | `kit.Validate` — the CLI marked a kit artifact `INVALID:`. |
 
 ## Runnable examples
 
@@ -732,8 +735,8 @@ Verified live against `sandboxd` v0.37.0:
   disk. The daemon records the kit list verbatim and resolves a relative path against its own
   working directory, which would record a path that does not exist and break every later add.
 - **`Sandbox.AddKit` cannot apply every kit.** The CLI refuses, pre-flight, any kit declaring
-  `credentials`, `publishedPorts`, `volumes`, `commands.startup` or `commands.initFiles`. Use
-  `sandbox.WithKit` at creation for those.
+  `credentials`, `publishedPorts`, `volumes`, `commands.startup` or `commands.initFiles`; the
+  CLI's own remedy is to recreate the sandbox with `create --kit`.
 - **`Sandbox.Kits` reads a label.** If upstream renames `com.docker.sandbox.kits`, it returns empty
   rather than an error.
 

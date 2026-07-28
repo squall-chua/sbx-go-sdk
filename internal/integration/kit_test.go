@@ -88,7 +88,6 @@ func TestSmoke_AddKitRecordsAbsolutePath(t *testing.T) {
 
 	sb, err := sandbox.Create(ctx, c,
 		sandbox.WithAgent("shell"),
-		sandbox.WithName("sdk-kit-addkit-test"),
 		sandbox.WithWorkspace(t.TempDir()),
 	)
 	require.NoError(t, err)
