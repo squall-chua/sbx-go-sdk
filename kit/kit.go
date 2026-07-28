@@ -155,13 +155,14 @@ func Pack(ctx context.Context, c *client.Client, dir, out string) error {
 // endpoint, retries indefinitely with no output, even with --debug. Verified
 // 2026-07-28 against sbx v0.37.0.
 //
-// Pass a ctx with a deadline, but do not rely on it as a guarantee. On
-// cancellation the SDK sends the process an interrupt and then waits for it
-// to exit; it sets no WaitDelay (internal/cli/cli.go:61,67), so a child that
-// ignores the interrupt, or a grandchild holding the output pipe, blocks the
-// call anyway. The sbx binary installs its own signal handlers, and whether
-// its push retry loop honours an interrupt has not been established. A
-// deadline bounds this call only if the CLI cooperates.
+// Pass a ctx with a deadline. On cancellation the SDK sends the process an
+// interrupt and, if it doesn't exit in time, kills it and closes its pipes
+// (internal/cli/cli.go's WaitDelay) — a child that ignores the interrupt, or
+// a grandchild holding the output pipe, no longer blocks the call forever.
+// A deadline therefore does return control to the caller. That is not the
+// same as a clean abort: the CLI may be killed mid-push rather than exiting
+// on its own, and if it succeeds but leaves a grandchild on the pipe past
+// the delay, this call surfaces that as an error rather than success.
 //
 // Unverified: this path has never completed against a real registry, because
 // no registry was reachable when it was written.
