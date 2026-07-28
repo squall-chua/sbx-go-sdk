@@ -1070,6 +1070,9 @@ func TestSmoke_AddKitRecordsAbsolutePath(t *testing.T) {
 
 	sb, err := sandbox.Create(ctx, c,
 		sandbox.WithAgent("shell"),
+		// Dropped during execution: a fixed name makes an interrupted run wedge
+		// the next one, since Create then returns ErrSandboxExists. The shipped
+		// test omits WithName and lets generateName dedupe, like its neighbours.
 		sandbox.WithName("sdk-kit-addkit-test"),
 		sandbox.WithWorkspace(t.TempDir()),
 	)
@@ -1237,7 +1240,9 @@ git commit -m "docs: record kit coverage and the kit spec schema
 - [ ] `go test ./...` — all unit tests pass
 - [ ] `go test -tags integration ./internal/integration/...` — all live tests pass
 - [ ] `sbx ls` shows only the two `jzrdxd6r3pw3l6py.*` sandboxes
-- [ ] `git log --oneline main..HEAD` shows seven commits
+- [ ] `git log --oneline main..HEAD` shows seven commits — superseded during execution. The branch
+      carries more: a fix-round commit, a user-approved commit making `toRunArgs` emit `--kit`, and
+      the documentation commits that followed review. Count the tasks, not the commits.
 - [ ] Nothing pushed; `main` untouched
 
 ## Known gaps this plan does not close

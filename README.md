@@ -672,7 +672,9 @@ contract test:
    drift** with a remediation hint (set `SBX_ALLOW_VERSION_DRIFT=1` to downgrade to a warning
    while upgrading).
 2. Regenerate the wire types: `go run ./internal/tools/dwarfgen -bin $(which sbx)`, then review
-   the [`internal/api/types_gen.go`](internal/api/types_gen.go) diff.
+   the [`internal/api/types_gen.go`](internal/api/types_gen.go) diff. **Re-apply the manual
+   reconciliation listed in that file's header** — generation reverts it, and the build then fails,
+   because `Sandbox.Kits` depends on `SandboxInfo.Labels` being `*map[string]string`.
 3. Reconcile [`docs/sbx-version-coverage.md`](docs/sbx-version-coverage.md) against the upstream
    release notes for the new version — the drift gate's failure message points here, so a sync
    that quietly misses features (as v0.35.0's did) gets caught.

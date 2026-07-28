@@ -153,9 +153,15 @@ func Pack(ctx context.Context, c *client.Client, dir, out string) error {
 // forbidden reference is not refused up front. Instead the CLI opens real
 // connections to registry infrastructure and, against an unreachable
 // endpoint, retries indefinitely with no output, even with --debug. Verified
-// 2026-07-28 against sbx v0.37.0. Callers must pass a ctx with a deadline —
-// the SDK runs the CLI via exec.CommandContext with a Cancel that signals the
-// process (internal/cli/cli.go:61,67), so cancelling ctx does terminate it.
+// 2026-07-28 against sbx v0.37.0.
+//
+// Pass a ctx with a deadline, but do not rely on it as a guarantee. On
+// cancellation the SDK sends the process an interrupt and then waits for it
+// to exit; it sets no WaitDelay (internal/cli/cli.go:61,67), so a child that
+// ignores the interrupt, or a grandchild holding the output pipe, blocks the
+// call anyway. The sbx binary installs its own signal handlers, and whether
+// its push retry loop honours an interrupt has not been established. A
+// deadline bounds this call only if the CLI cooperates.
 //
 // Unverified: this path has never completed against a real registry, because
 // no registry was reachable when it was written.
