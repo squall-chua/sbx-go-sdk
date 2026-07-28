@@ -193,6 +193,7 @@ Base: `http://localhost` over the unix socket. Echo router. `{name}` = sandbox i
 | GET  | `/daemon/health` | liveness `{api_version, revision, release, status, version}` (replaces the removed `/health`) |
 | GET  | `/daemon/loglevel` | `{general, proxy}` log levels |
 | POST | `/daemon/loglevel/set` | set a category's log level |
+| GET  | `/daemon/diagnostics` | daemon self-check report `{info, socket_paths}` — see below |
 | GET  | `/sandbox` | list sandboxes |
 | POST | `/sandbox` | create a sandbox |
 | GET  | `/sandbox/{name}` | inspect sandbox |
@@ -232,6 +233,20 @@ Base: `http://localhost` over the unix socket. Echo router. `{name}` = sandbox i
   `{"allowed":false,"deny_kind":"implicit","reason":"No matching allow rule (default deny)"}`.
 - `GET /policy/network/profiles` → `{"profiles":[]}` on this host, because the `feature.profiles`
   flag is disabled.
+### `GET /daemon/diagnostics`
+
+Probed at v0.37.0: `200 application/json`, `Allow: OPTIONS, GET`. Two top-level keys, `info` and
+`socket_paths`. `info` is a large nested object whose keys are **Go field names in PascalCase**,
+not the snake_case the rest of the API uses: `SchemaVersion`, `CapturedAt`, `Version`, `GoRuntime`,
+`NerdboxID`, `Host`, `Process`, `State`, `ContainerdConfig`, `Goroutines`. The SDK's
+`client.Diagnostics` hands it back as raw JSON rather than modelling it; decode the fields you
+need.
+
+This is the daemon's own self-check. It is **not** what `sbx diagnose` prints — that is a separate
+CLI-side install checker, which the SDK does not wrap.
+
+Which release the route first appeared in was not established; it was simply never recorded in the
+table above until now.
 
 ### Hidden feature flags (not in `sbx settings list`)
 
@@ -308,6 +323,7 @@ sbx -D daemon status                             # prints socket + log paths
 SOCK=~/.local/state/sandboxes/sandboxes/sandboxd/sandboxd.sock
 curl -s --unix-socket "$SOCK" http://localhost/daemon/health
 curl -s --unix-socket "$SOCK" http://localhost/daemon/info
+curl -s --unix-socket "$SOCK" http://localhost/daemon/diagnostics
 curl -s --unix-socket "$SOCK" http://localhost/sandbox
 curl -s -X OPTIONS -D- -o/dev/null --unix-socket "$SOCK" http://localhost/sandbox  # Allow: header
 curl -s --unix-socket "$SOCK" http://localhost/policy/network/rules
