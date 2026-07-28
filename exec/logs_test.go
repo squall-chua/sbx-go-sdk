@@ -50,7 +50,7 @@ func logsStub(t *testing.T) (*client.Client, <-chan []string) {
 					conn.Write(frame(1, "hello\n"))
 					return
 				}
-				writeJSON(conn, `{"name":"s1","status":"running"}`)
+				writeJSON(conn, "200 OK", `{"name":"s1","status":"running"}`)
 			}(conn)
 		}
 	}()

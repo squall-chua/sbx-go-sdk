@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/squall-chua/sbx-go-sdk/sandbox"
@@ -81,25 +82,32 @@ func serveConn(conn net.Conn) {
 			conn.Write(frame(2, "err\n"))
 		}
 	case strings.HasSuffix(p, "/exec/efail"):
-		writeJSON(conn, `{"exit_code":1,"running":false}`)
+		writeJSON(conn, "200 OK", `{"exit_code":1,"running":false}`)
 	case strings.HasSuffix(p, "/exec/missing"):
-		conn.Write([]byte("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n" +
-			"Content-Length: 27\r\n\r\n{\"message\":\"exec not found\"}"))
+		writeJSON(conn, "404 Not Found", `{"message":"exec not found"}`)
 	case strings.HasSuffix(p, "/exec/e1"):
-		writeJSON(conn, `{"exit_code":0,"running":false}`)
+		writeJSON(conn, "200 OK", `{"exit_code":0,"running":false}`)
 	case strings.HasSuffix(p, "/start"):
-		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"))
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
 	case p == "/sandbox/stopped":
-		writeJSON(conn, `{"name":"stopped","status":"stopped"}`)
+		writeJSON(conn, "200 OK", `{"name":"stopped","status":"stopped"}`)
 	case strings.HasPrefix(p, "/sandbox/"):
 		name := strings.TrimPrefix(p, "/sandbox/")
-		writeJSON(conn, `{"name":"`+name+`","status":"running"}`)
+		writeJSON(conn, "200 OK", `{"name":"`+name+`","status":"running"}`)
 	}
 }
 
-func writeJSON(conn net.Conn, body string) {
-	conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
-		"Content-Length: " + itoa(len(body)) + "\r\n\r\n" + body))
+// writeJSON writes one response and announces the close. Every response here
+// must carry Connection: close, because serveConn answers a single request and
+// then hangs up: without it the client keeps the dead connection in its idle
+// pool. See TestExec_AutoStart_NoConnectionReuse.
+//
+// Content-Length is computed rather than written by hand. It was hand-written
+// once, off by one on the 404 body, which left a stray "}" in the stream and
+// made net/http log "Unsolicited response received on idle HTTP channel".
+func writeJSON(conn net.Conn, status, body string) {
+	conn.Write([]byte("HTTP/1.1 " + status + "\r\nContent-Type: application/json\r\n" +
+		"Content-Length: " + itoa(len(body)) + "\r\nConnection: close\r\n\r\n" + body))
 }
 
 func itoa(n int) string {
@@ -173,6 +181,50 @@ func TestExec_StoppedSandboxWithoutAutoStart(t *testing.T) {
 func TestExec_AutoStart(t *testing.T) {
 	c, _ := attachStub(t)
 	sb := sandbox.NewForTest(c, "stopped")
+	code, r, err := Exec(context.Background(), sb, []string{"echo", "hi"}, WithAutoStart())
+	require.NoError(t, err)
+	out, _ := io.ReadAll(r)
+	require.Equal(t, "hello\n", string(out))
+	require.Equal(t, 0, code)
+}
+
+// slowCloseConn delays the stub's close so the client is certain to still hold
+// the connection in its idle pool when the next request goes out.
+type slowCloseConn struct{ net.Conn }
+
+func (c slowCloseConn) Close() error {
+	time.Sleep(50 * time.Millisecond)
+	return c.Conn.Close()
+}
+
+// TestExec_AutoStart_NoConnectionReuse pins a CI flake. serveConn answers one
+// request per connection and then closes it, so every response must say
+// "Connection: close". Without that the client keeps the dead connection in its
+// idle pool, and WithAutoStart's POST /start — which follows a GET on the same
+// client — can land on it and fail with "connection reset by peer". A GET would
+// survive this: net/http silently retries a replayable request on a fresh
+// connection. A POST carrying a body is not replayable, so the error surfaces.
+// Whether it surfaces at all is a race, which is why this only failed in CI;
+// slowCloseConn removes the race and makes the regression deterministic.
+func TestExec_AutoStart_NoConnectionReuse(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	l, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go serveConn(slowCloseConn{conn})
+		}
+	}()
+	t.Cleanup(func() { l.Close() })
+
+	c, err := client.New(context.Background(), client.WithSocketPath(sock))
+	require.NoError(t, err)
+	sb := sandbox.NewForTest(c, "stopped")
+
 	code, r, err := Exec(context.Background(), sb, []string{"echo", "hi"}, WithAutoStart())
 	require.NoError(t, err)
 	out, _ := io.ReadAll(r)
