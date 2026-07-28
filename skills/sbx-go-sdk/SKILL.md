@@ -57,7 +57,7 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
 | SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.TargetFor(name)` |
 | Skills | `skillstore.Import(ctx, c, skillstore.WithDryRun())` — shared agent skills store (v0.37.0) |
-| Kit artifacts | `kit.Inspect/Validate/Pack/Push/Pull(ctx, c, ...)` — attach with `sandbox.WithKit` or `sb.AddKit` (v0.34.0) |
+| Kit artifacts | `kit.Inspect/Validate/Pack/Push/Pull(ctx, c, ...)` (v0.34.0) — attach with `sandbox.WithKit` (v0.34.0) or `sb.AddKit`/`sb.Kits` (v0.35.0) |
 
 Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`, `WithAutoStart`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
