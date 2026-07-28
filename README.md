@@ -38,6 +38,7 @@ fmt.Printf("exit %d:\n%s", code, body)
 - [Install the SDK](#install-the-sdk)
 - [Quick start](#quick-start)
 - [Package map](#package-map)
+- [Feature matrix](#feature-matrix) — what the SDK covers, and what it doesn't
 - [Usage guide](#usage-guide)
   - [1. Connect to the daemon](#1-connect-to-the-daemon)
   - [2. Create a sandbox](#2-create-a-sandbox)
@@ -52,6 +53,7 @@ fmt.Printf("exit %d:\n%s", code, body)
   - [11. Secrets](#11-secrets)
   - [12. Settings & SSH](#12-settings--ssh)
   - [13. Skills](#13-skills)
+  - [14. Kits](#14-kits)
 - [Error handling](#error-handling)
 - [Runnable examples](#runnable-examples)
 - [Agent skill](#agent-skill)
@@ -100,8 +102,8 @@ The transport is **hybrid** (see [docs/adr/0001](docs/adr/0001-hybrid-cli-shello
   remove, exec/attach (via a hijacked Docker stdcopy stream), ports (publish/unpublish), copying a
   file *from* a sandbox, policy list/check, templates, network log.
 - **Shell-out to the `sbx` binary** for orchestration-heavy operations with no REST client
-  path — `Create`, agent `Run`, `template save`, copying a file *to* a sandbox, skills import, and
-  `policy`/`secret` mutations.
+  path — `Create`, agent `Run`, `template save`, copying a file *to* a sandbox, skills import, every
+  `kit` operation, and `policy`/`secret` mutations.
 
 The socket path is resolved with this precedence: `client.WithSocketPath(...)` >
 `$DOCKER_SANDBOXES_API` > the XDG default
@@ -240,6 +242,135 @@ func main() {
 
 Two return types are re-exported aliases so external callers never need `internal/*`:
 `sandbox.Info` (daemon sandbox description) and `client.Runner` (the `sbx`-binary runner).
+
+## Feature matrix
+
+Every `sbx` feature, and whether this SDK exposes it. **Since** is the `sbx` release the feature
+shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
+
+| | Meaning |
+| --- | --- |
+| ✅ | Supported — the SDK wraps it. |
+| ⚠️ | Partly supported — works, with a caveat named in the row. |
+| ❌ | Not supported — no SDK surface. |
+
+> Maintainers: [`docs/sbx-version-coverage.md`](docs/sbx-version-coverage.md) is the authority on
+> which release a feature shipped in — it is reconciled against upstream release notes and wired
+> into the drift gate. If a **Since** value here ever disagrees with that table, the table wins.
+
+**Sandboxes**
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Create a sandbox | `create` | v0.32.0 | `sandbox.Create` | ✅ |
+| Interactive agent session | `run` | v0.32.0 | `sandbox.Run`, `sb.Run` | ✅ |
+| List | `ls` | v0.32.0 | `sandbox.List`, `sandbox.Get` | ✅ |
+| Inspect | `inspect` | v0.32.0 | `sb.Inspect` | ⚠️ auth mode and active sessions are absent from `SandboxInfo` |
+| Start / stop / remove | `stop`, `rm` | v0.32.0 | `sb.Start`, `sb.Stop`, `sb.Remove` | ✅ |
+| Stable per-sandbox ID | — | v0.33.0 | `sb.ID()` | ✅ |
+| Mount-policy-denied flag | — | v0.33.0 | `sb.MountPolicyDenied()` | ✅ |
+| Force-remove an active session | `rm -f` | v0.35.0 | `sandbox.WithForce()` | ✅ |
+| Remove every sandbox at once | `rm --all` | v0.37.0 | — | ❌ loop over `sandbox.List` |
+| Publish ports at create time | `-p/--publish` | v0.37.0 | `sandbox.WithPublish` | ✅ |
+| Clone, CPUs, memory, template, profile, name | flags | v0.32.0 | `sandbox.With*` | ✅ |
+| Skip skill sharing | `--no-share-skills` | v0.37.0 | — | ❌ gated off upstream by a remote feature flag |
+
+**Exec**
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Run a command, capture output | `exec` | v0.32.0 | `exec.Exec` | ✅ |
+| Stream stdout/stderr live | `exec` | v0.32.0 | `exec.WithMultiplexed` | ✅ |
+| Interactive attach, TTY + resize | `exec` | v0.32.0 | `exec.ExecInteractive` | ✅ |
+| Detached exec + poll | — | v0.32.0 | `exec.ExecDetached`, `exec.InspectExec` | ✅ |
+| Workdir, env, user, privileged | flags | v0.32.0 | `exec.With*` | ✅ |
+| CPU / memory / disk snapshot | TUI only | v0.32.0 | `exec.Stats` | ⚠️ no daemon endpoint; execs a probe inside the sandbox |
+| Follow a log file | — | — | `exec.Logs` | ✅ SDK convenience over `ExecInteractive` |
+
+**Files & ports**
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Copy host → sandbox | `cp` | v0.32.0 | `sb.CopyTo` | ✅ shell-out; no REST upload path |
+| Copy sandbox → host | `cp` | v0.32.0 | `sb.CopyFrom` | ✅ REST as of v0.37.0; auto-starts the sandbox |
+| Follow source symlinks | `cp -L` | v0.33.0 | `sandbox.WithFollowSymlinks` | ✅ |
+| Publish / list ports | `ports` | v0.32.0 | `sb.PublishPort`, `sb.Ports` | ✅ |
+| Unpublish a port | `ports` | v0.32.0 | `sb.UnpublishPort` | ✅ REST as of v0.37.0 |
+
+**Templates**
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Snapshot a sandbox | `template save` | v0.32.0 | `sb.SaveTemplate` | ⚠️ the daemon refuses a running sandbox — stop it first |
+| List / inspect / remove / load | `template` | v0.32.0 | `template.List`, `Inspect`, `Remove`, `Load` | ✅ |
+
+**Network policy**
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Allow / deny / remove a rule | `policy` | v0.32.0 | `policy.Allow`, `Deny`, `RemoveRule` | ✅ |
+| Reset rules, read the proxy log | `policy reset`, `policy log` | v0.32.0 | `policy.Reset`, `policy.Log` | ✅ |
+| Set the default profile | `policy init` | v0.34.0 | `policy.SetDefault` | ✅ renamed from `set-default` in v0.34.0 |
+| List rules | `policy ls` | v0.32.0 | `policy.List`, `policy.ListRaw` | ✅ REST as of v0.37.0, always `type=all` |
+| `ls` filters: `--wide`, `--source`, `--decision`, `--include-inactive` | `policy ls` | v0.35.0 | — | ❌ the fields are on `PolicyRule`; filter client-side |
+| Check whether an access is allowed | `policy check network` | v0.35.0 | `policy.Check` | ✅ |
+| Governance / org status on a check | — | v0.37.0 | `Authorization.Governance` | ⚠️ fields decoded; live behaviour unverified, no governed org to test against |
+| Inspect a policy or rule | `policy inspect` | v0.35.0 | `policy.InspectRaw` | ⚠️ raw text — no `--json` upstream |
+| List profiles | `policy profile ls` | v0.32.0 | `policy.Profiles` | ⚠️ raw text — no `--json` upstream |
+
+**Secrets** (experimental upstream)
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Store a service token | `secret set` | v0.32.0 | `secret.SetToken` | ✅ written to stdin, never the argument vector |
+| Store registry credentials | `secret set --registry` | v0.32.0 | `secret.SetRegistry` | ✅ written to stdin |
+| Store a custom host secret | `secret set-custom` | v0.32.0 | `secret.SetCustom` | ⚠️ the value passes as a CLI argument — visible in the host process list |
+| Host wildcards on a custom secret | `--host` | v0.33.0 | `secret.SetCustom` | ✅ the pattern passes straight through |
+| Import credentials from host env | `secret import` | v0.35.0 | `secret.Import`, `secret.ImportAll` | ✅ |
+| List / remove | `secret ls`, `secret rm` | v0.32.0 | `secret.List`, `ListRaw`, `Remove`, `RemoveCustom` | ⚠️ `List` parses the CLI table — no `--json` upstream |
+| Store an OAuth token | `secret set --oauth` | v0.37.0 | — | ❌ interactive, and `openai`/global only |
+
+**Kits** (experimental upstream)
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Inspect a kit | `kit inspect` | v0.34.0 | `kit.Inspect` | ⚠️ upstream omits the `files/` payload from `--json` |
+| Validate a kit | `kit validate` | v0.34.0 | `kit.Validate` | ✅ OCI references are refused by the CLI |
+| Pack a kit into a ZIP | `kit pack` | v0.34.0 | `kit.Pack` | ✅ |
+| Push / pull an OCI v2 artifact | `kit push`, `kit pull` | v0.34.0 | `kit.Push`, `kit.Pull` | ⚠️ never completed against a live registry |
+| Attach kits at create time | `create --kit` | v0.34.0 | `sandbox.WithKit` | ✅ |
+| Add a kit to an existing sandbox | `kit add` | v0.35.0 | `sb.AddKit` | ⚠️ the CLI refuses kits declaring credentials, ports, volumes or startup commands |
+| Read a sandbox's kit list | `inspect` | v0.35.0 | `sb.Kits` | ⚠️ read from the `com.docker.sandbox.kits` label; empty if upstream renames it |
+| Restrict kit sources | `kit.allowedSources` | v0.34.0 | `settings.Set` | ✅ via the generic settings API |
+
+**Settings, SSH & skills**
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Get / list / set / unset a setting | `settings` (hidden) | v0.32.0 | `settings.Get`, `List`, `Set`, `Unset` | ✅ writes are fire-and-forget; the daemon reloads within ~5s |
+| Enable / disable the SSH endpoint | `feature.ssh` | v0.34.0 | `ssh.Enable`, `Disable`, `Enabled` | ✅ enabled by default as of v0.37.0 |
+| Write the SSH host config | `setup ssh` | v0.37.0 | `ssh.Setup`, `ssh.TargetFor` | ✅ path renamed from `ssh setup` in v0.37.0; both still work |
+| Import host skills into the shared store | `skills import` | v0.37.0 | `skillstore.Import` | ✅ |
+
+**Daemon**
+
+| Feature | `sbx` | Since | SDK | |
+| --- | --- | --- | --- | --- |
+| Start / stop / status | `daemon` (hidden) | v0.32.0 | `client.WithAutoStart`, `c.StartDaemon`, `c.StopDaemon`, `c.DaemonStatus` | ✅ |
+| Liveness and version | — | v0.32.0 | `c.Health`, `c.DaemonHealth`, `c.Info` | ✅ `/daemon/health`; the standalone `GET /health` was removed in v0.35.0 |
+| Read / set log levels | `daemon log-level` | v0.32.0 | `c.LogLevels`, `c.SetLogLevel` | ✅ |
+| Daemon self-check report | — | v0.32.0 | `c.Diagnostics` | ⚠️ raw JSON; not the same as the `sbx diagnose` install checker |
+| Reset all state | `reset` | v0.32.0 | `c.Reset` | ✅ wipes **every** sandbox and all daemon state |
+| Client/daemon version negotiation | `POST /version` | removed v0.37.0 | `c.CheckVersion` | ❌ deprecated — upstream removed the route, so this always errors |
+| Diagnose an install | `diagnose` | v0.32.0 | — | ❌ never wrapped |
+| Sign in / sign out | `login`, `logout` | v0.32.0 | — | ❌ interactive browser OAuth |
+| Interactive host-config wizard | `setup` | v0.34.0 | — | ❌ interactive; distinct from `secret import` |
+| Terminal dashboard | `tui` | v0.32.0 | — | ❌ out of scope for a library |
+
+Create-request fields the daemon accepts but `sbx create` cannot pass — `Environment`,
+`SecretsScope`, `PullPolicy`, `RootFilesystemSize`, `DindVolumeSize`, `EnableVirtiofsCache`,
+`Display`, `AgentOptions`, `BindingsPath`, `CredentialValues` — are unreachable from the SDK too,
+because creation shells out. Use `exec.WithEnv` for environment variables.
 
 ---
 
@@ -575,6 +706,60 @@ _ = skillstore.Import(ctx, c)                          // --force: replaces exis
 _ = skillstore.Import(ctx, c, skillstore.WithDryRun()) // preview only, writes nothing
 ```
 
+### 14. Kits
+
+A kit is a declarative artifact — a `spec.yaml` plus an optional `files/` directory — that
+contributes configuration to a sandbox. A kit of kind `"mixin"` extends an existing sandbox; one
+of kind `"sandbox"` supplies the base image instead. **Experimental upstream.** Every call shells
+out to the `sbx` binary; the daemon has no kit REST path.
+
+**Attach a kit to a sandbox:**
+
+```go
+// At creation — the only way to apply a kit in full.
+sb, _ := sandbox.Create(ctx, c,
+	sandbox.WithAgent("claude"),
+	sandbox.WithWorkspace("."),
+	sandbox.WithKit("./my-kit", "ghcr.io/me/kit:v1"), // repeatable
+)
+
+// Afterwards — recreates the container with the kit appended.
+_ = sb.AddKit(ctx, "./my-kit")
+
+refs, _ := sb.Kits(ctx) // []string, in the order they were added
+```
+
+> ⚠️ `AddKit` applies only part of a kit. The CLI refuses, before touching anything, any kit
+> declaring `credentials`, `publishedPorts`, `volumes`, `commands.startup` or
+> `commands.initFiles` — recreate the sandbox with `WithKit` for those. `AddKit` also **starts a
+> stopped sandbox** and leaves it running. Local paths are made absolute first, because the daemon
+> records the reference verbatim.
+
+**Read and package kits:**
+
+```go
+info, _ := kit.Inspect(ctx, c, "./my-kit")   // dir, ZIP, git repo, or OCI reference
+fmt.Println(info.Manifest.Name, info.Manifest.Kind, info.Warnings)
+
+err := kit.Validate(ctx, c, "./my-kit")      // dir, ZIP or git repo — NOT an OCI reference
+if errors.Is(err, client.ErrKitRejected) {
+	// the CLI marked the artifact INVALID
+}
+
+_ = kit.Pack(ctx, c, "./my-kit", "./my-kit.zip") // out is required, never derived
+_ = kit.Pull(ctx, c, "ghcr.io/me/kit:v1", "./my-kit.zip")
+
+pushCtx, cancel := context.WithTimeout(ctx, 2*time.Minute) // Push retries indefinitely
+defer cancel()
+_ = kit.Push(pushCtx, c, "./my-kit", "ghcr.io/me/kit:v1")
+```
+
+`Inspect` returns a report, not the kit — it omits the `files/` payload that `Pack` writes.
+Struct-valued fields on `kit.Info` and `kit.Manifest` stay as `json.RawMessage`
+([ADR 0005](docs/adr/0005-type-kit-strings-pass-structs-through.md)); unmarshal one into a shape of
+your own when you need it. `Push` and `Pull` have never completed against a real registry — see
+[Known deviations](#known-deviations--limitations).
+
 ---
 
 ## Error handling
@@ -737,6 +922,12 @@ Verified live against `sandboxd` v0.37.0:
   network connections regardless of the reference's source and retries indefinitely against an
   unreachable target, with no output even under `--debug`. Callers of `Push` should pass a `ctx`
   with a deadline.
+- **Cancelling a shell-out always returns, but not always cleanly.** On cancellation the SDK sends
+  the child an interrupt and, if it has not exited within a 10s grace period, kills it and closes
+  its pipes. So a `ctx` deadline does return control — a child that ignores the interrupt, or a
+  grandchild holding the output pipe, no longer blocks the call forever. The trade-off: if the
+  command itself succeeds but leaves a grandchild on the pipe past that grace period, the call
+  reports a `client.CLIError` with `ExitCode -1` rather than success.
 - **Local kit paths are made absolute.** `AddKit` and `WithKit` rewrite a reference that exists on
   disk. The daemon records the kit list verbatim and resolves a relative path against its own
   working directory, which would record a path that does not exist and break every later add.
