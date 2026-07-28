@@ -1210,7 +1210,12 @@ Add to the README's limitations list:
 - [ ] **Step 4: Verify the drift gate still passes**
 
 Run: `go test -tags integration ./internal/integration/... -run TestContract 2>&1 | tail -20`
-Expected: PASS. `TestContract_VersionAlignment` reads the coverage table.
+Expected: PASS. Note: `TestContract_VersionAlignment` does NOT parse the coverage
+table — it compares the live daemon's version and api_version against
+`client.ClientVersion` / `client.TestedAPIVersion`, and only names
+`docs/sbx-version-coverage.md` in its failure message so a maintainer reconciles
+the table by hand. The table has no automated gate. Verified 2026-07-28 by reading
+`internal/integration/version_contract_test.go`.
 
 - [ ] **Step 5: Commit**
 
