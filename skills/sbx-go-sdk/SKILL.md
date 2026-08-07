@@ -52,19 +52,25 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Copy files | `sb.CopyTo(ctx, local, sandboxPath)`, `sb.CopyFrom(ctx, sandboxPath, local)` |
 | Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)`, `sb.UnpublishPort(ctx, spec)` |
 | Templates | `sb.SaveTemplate(ctx, tag)`, `template.List/Inspect/Remove/Load` |
-| Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.InspectRaw` |
+| Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.InspectRaw`, `policy.ProfileNames` (`[]string`, empty without a governed org) |
 | Secrets | `secret.SetCustom/List/Remove`, `secret.SetToken/SetRegistry` (stdin, no argv exposure), `secret.Import/ImportAll` |
-| Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
+| Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.ListAll(ctx, c)` (feature flags too, v0.38.0), `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
 | SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.TargetFor(name)` |
 | Skills | `skillstore.Import(ctx, c, skillstore.WithDryRun())` — shared agent skills store (v0.37.0) |
 | Kit artifacts | `kit.Inspect/Validate/Pack/Push/Pull(ctx, c, ...)` (v0.34.0) — attach with `sandbox.WithKit` (v0.34.0) or `sb.AddKit`/`sb.Kits` (v0.35.0) |
+| MCP servers | `mcp.AddRemote/AddLocal/List/Inspect/Remove/Load(ctx, c, ...)` (v0.38.0) — fix a sandbox's set with `sandbox.WithStaticMCP`, or `mcp.Load` into a running one; `mcp.AuthStatus/AuthRemove` for hosted OAuth state; `c.MCPGatewayMode(ctx)` reports local vs hosted gateway |
+| Sandbox summary | `sb.Summary(ctx)` → auth mode, injected secrets, session count, MCP-gateway state (v0.38.0) — none of these are on `sb.Inspect`'s REST record |
+| Install check / sign-in | `c.Diagnose(ctx)` (`*client.Diagnosis`, `.OK()`), `c.Login(ctx, user, token)` (stdin, no argv), `c.Logout(ctx)` (stops every running sandbox), `c.RestartDaemon(ctx)` |
+| Detect host config | `c.DetectSetup(ctx)` → `*client.SetupReport`, `.Section("SKILLS")` — read-only, never runs the wizard |
+| OAuth handshakes | `secret.SetOAuth(ctx, c, "openai", onURL)`, `mcp.Authorize(ctx, c, name, onURL)` — both hand you the consent URL and block; always pass a cancellable ctx |
 
 Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`, `WithAutoStart`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
 `WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`,
-`WithPublish` (`-p`, v0.37.0), `WithKit` (`--kit`, v0.34.0). Remove option: `WithForce` (removes an active session).
+`WithPublish` (`-p`, v0.37.0), `WithKit` (`--kit`, v0.34.0), `WithDenyNetwork`, `WithStaticMCP`
+(both v0.38.0), `WithoutSharedSkills`. Remove option: `WithForce` (removes an active session).
 
-## Gotchas (verified against sandboxd v0.37.0)
+## Gotchas (verified against sandboxd v0.38.0)
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
@@ -76,8 +82,22 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 - **`SaveTemplate` requires a stopped sandbox** — call `sb.Stop(ctx)` first, or it fails on a
   non-interactive stop prompt.
 - **`secret.List` → `*Secrets`** still parses the CLI table (no `--json` upstream); a format
-  change returns `client.ErrUnexpectedFormat`. Use `secret.ListRaw` for raw text; `policy.Profiles`
-  stays raw text too.
+  change returns `client.ErrUnexpectedFormat`. Use `secret.ListRaw` for raw text. `policy.Profiles`
+  keeps its text signature (deprecated); `policy.ProfileNames` is the typed REST call.
+- **The OAuth calls block on a human.** `secret.SetOAuth` and `mcp.Authorize` print nothing —
+  they invoke your `onURL` callback with the consent URL, then wait on a loopback callback until
+  someone approves. Always give them a timeout/cancellable ctx.
+- **Secret scope changed spelling in v0.38.0.** The SDK's scope argument is unchanged (`""` =
+  global, otherwise a sandbox name), but a *registry* credential's default scope is now the new
+  `secret.HostOnlyScope` — host-side pulls only, injected into no sandbox. `SetRegistry(…, "", …)`
+  still means "every sandbox"; pass `secret.WithHostOnly()` for the new one.
+- **`mcp.List`/`mcp.Inspect` parse CLI output** (no `--json` upstream); `mcp.AuthStatus`/`AuthRemove`
+  do get `--format json`. `sbx mcp auth <name>` (interactive OAuth) is not wrapped — register with
+  `mcp.WithSkipAuth()`, authorize out of band, confirm with `mcp.AuthStatus`. `mcp.Remove` on an
+  unregistered name exits 0, so it cannot report whether anything was removed.
+- **`sb.Inspect` vs `sb.Summary`.** `Inspect` is the daemon's REST record. `Summary`
+  (`sbx inspect --json`, shell-out) is the only source of `AuthMode`, `Secrets`, `Sessions` and
+  `MCPGateway`. Check `Summary.Sessions` before reaching for `Remove(WithForce())`.
 - **`secret.SetCustom` is experimental** and exposes the value in host process listings — for
   headless agent credentials prefer `exec.WithEnv`. `secret.SetToken`/`SetRegistry` do not have
   this problem: both write the secret to the child process's stdin instead of an argument, so it
