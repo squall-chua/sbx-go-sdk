@@ -3,8 +3,10 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -36,13 +38,13 @@ type versionResponse struct {
 }
 
 // ClientVersion is the sbx/daemon version this SDK was built/tested against.
-const ClientVersion = "v0.37.0"
+const ClientVersion = "v0.38.0"
 
 // TestedAPIVersion is the daemon REST api_version this SDK's wire types were
 // generated from and validated against (see DaemonHealthResponse.APIVersion). The
 // integration contract test (TestContract_VersionAlignment) fails when a live
 // daemon drifts from it, signalling a re-sync is due.
-const TestedAPIVersion = "0.24.0"
+const TestedAPIVersion = "0.26.0"
 
 // CheckVersion asks the daemon whether this client is compatible.
 //
@@ -149,6 +151,40 @@ func (c *Client) StartDaemon(ctx context.Context, opts StartOptions) error {
 	return nil
 }
 
+// RestartDaemon restarts sandboxd via `sbx daemon restart` (shell-out, added in
+// sbx v0.38.0). Some settings only take effect after a restart — `sbx settings
+// list` marks them, and Setting.RequiresRestart reports the same flag.
+func (c *Client) RestartDaemon(ctx context.Context) error {
+	r, err := c.runnerOrErr()
+	if err != nil {
+		return err
+	}
+	if _, err := r.Capture(ctx, nil, "daemon", "restart"); err != nil {
+		return err
+	}
+	return c.waitHealthy(ctx, 30*time.Second)
+}
+
+// MCPGatewayModeResponse is the /mcp/gateway-mode response (sbx v0.38.0): which
+// MCP gateway a new sandbox gets. Decision is "local" or "saas"; GatewayURL is
+// "none" for the local gateway.
+type MCPGatewayModeResponse struct {
+	Decision   string `json:"decision"`
+	GatewayURL string `json:"gateway_url"`
+	Reason     string `json:"reason"`
+}
+
+// MCPGatewayMode reports whether sandboxes get the local or the hosted (SaaS)
+// MCP gateway, and why. The choice depends on Docker entitlement and on the
+// mcp.forceLocalGateway setting.
+func (c *Client) MCPGatewayMode(ctx context.Context) (*MCPGatewayModeResponse, error) {
+	var m MCPGatewayModeResponse
+	if err := c.tr.DoJSON(ctx, http.MethodGet, "/mcp/gateway-mode", nil, &m); err != nil {
+		return nil, mapHTTPError("mcp-gateway-mode", err)
+	}
+	return &m, nil
+}
+
 // DaemonHealthResponse is the /daemon/health response (richer than /health).
 type DaemonHealthResponse struct {
 	APIVersion string `json:"api_version"`
@@ -175,6 +211,101 @@ func (c *Client) Diagnostics(ctx context.Context) (json.RawMessage, error) {
 		return nil, mapHTTPError("diagnostics", err)
 	}
 	return raw, nil
+}
+
+// Login signs in to Docker non-interactively (`sbx login --username U
+// --password-stdin`). token is a Docker password or personal access token; it is
+// written to the child process's stdin and never appears in the argument vector.
+//
+// This is the only scriptable path into `sbx login`. Bare `sbx login` opens a
+// browser for OAuth and is not wrapped.
+//
+// Sandboxes need an authenticated host: without it the daemon cannot pull
+// template images.
+func (c *Client) Login(ctx context.Context, username, token string) error {
+	if username == "" {
+		return errors.New("login: username must not be empty")
+	}
+	if token == "" {
+		return errors.New("login: token must not be empty")
+	}
+	r, err := c.runnerOrErr()
+	if err != nil {
+		return err
+	}
+	_, err = r.CaptureStdin(ctx, strings.NewReader(token+"\n"), nil,
+		"login", "--username", username, "--password-stdin")
+	return err
+}
+
+// Logout signs out of Docker (`sbx logout --yes`).
+//
+// It **stops every running sandbox** first — that is upstream's behaviour, not
+// this SDK's addition. --yes is always passed, because the confirmation prompt
+// would otherwise block on non-interactive stdin. Sandboxes are stopped, not
+// removed; their state survives.
+func (c *Client) Logout(ctx context.Context) error {
+	r, err := c.runnerOrErr()
+	if err != nil {
+		return err
+	}
+	_, err = r.Capture(ctx, nil, "logout", "--yes")
+	return err
+}
+
+// DiagnosticCheck is one check from `sbx diagnose -o json`. Detail and Hint are
+// often empty; Hint carries the CLI's remediation advice when it has one.
+type DiagnosticCheck struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"` // "pass" | "warn" | "fail" | "skip"
+	Message string `json:"message"`
+	Detail  string `json:"detail"`
+	Hint    string `json:"hint"`
+}
+
+// DiagnosticSummary counts the checks by status.
+type DiagnosticSummary struct {
+	Pass int `json:"pass"`
+	Warn int `json:"warn"`
+	Fail int `json:"fail"`
+	Skip int `json:"skip"`
+}
+
+// Diagnosis is the `sbx diagnose -o json` report: the CLI-side install checker.
+type Diagnosis struct {
+	Version string            `json:"version"` // report schema version, "1.0" at sbx v0.38.0
+	Checks  []DiagnosticCheck `json:"checks"`
+	Summary DiagnosticSummary `json:"summary"`
+}
+
+// OK reports whether no check failed. Warnings do not make it false — a host
+// with no internet to check for CLI updates warns, and still works.
+func (d *Diagnosis) OK() bool { return d.Summary.Fail == 0 }
+
+// Diagnose runs the CLI-side install checker (`sbx diagnose -o json`, whose JSON
+// output arrived in sbx v0.38.0). It reports on the binary, the daemon, storage
+// paths, the socket and authentication.
+//
+// This is not Diagnostics: that returns the daemon's own self-check from
+// /daemon/diagnostics, a much larger and entirely different report.
+//
+// `sbx diagnose --upload` sends the report to Docker support. It is deliberately
+// not wrapped — shipping host diagnostics to a third party should be an explicit
+// act, not a side effect of a library call.
+func (c *Client) Diagnose(ctx context.Context) (*Diagnosis, error) {
+	r, err := c.runnerOrErr()
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.Capture(ctx, nil, "diagnose", "-o", "json")
+	if err != nil {
+		return nil, err
+	}
+	var d Diagnosis
+	if err := json.Unmarshal([]byte(out), &d); err != nil {
+		return nil, fmt.Errorf("diagnose: %w: %w", ErrUnexpectedFormat, err)
+	}
+	return &d, nil
 }
 
 // Status reports daemon liveness plus the socket it was probed on.
