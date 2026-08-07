@@ -45,12 +45,16 @@ func TestSecretOps(t *testing.T) {
 
 	data, _ := os.ReadFile(argFile)
 	lines := string(data)
-	require.Contains(t, lines, "secret set-custom -g --host api.example.com --env API_KEY --value sk-123")
-	require.Contains(t, lines, "secret set-custom -g --host *.example.com --host api.other.io --env API_KEY --value sk-456")
+	// sbx v0.38.0 made global the default and deprecated both "-g" and the bare
+	// positional sandbox name, so global emits no scope argument at all and a
+	// sandbox scope emits "--sandbox NAME".
+	require.Contains(t, lines, "secret set-custom --host api.example.com --env API_KEY --value sk-123")
+	require.Contains(t, lines, "secret set-custom --host *.example.com --host api.other.io --env API_KEY --value sk-456")
 	require.Contains(t, lines, "secret ls")
-	require.Contains(t, lines, "secret rm mysandbox openai -f")
-	require.Contains(t, lines, "secret rm -g --host api.example.com -f")
-	require.Contains(t, lines, "secret rm my-sandbox --host api.example.com -f")
+	require.Contains(t, lines, "secret rm --sandbox mysandbox openai -f")
+	require.Contains(t, lines, "secret rm --host api.example.com -f")
+	require.Contains(t, lines, "secret rm --sandbox my-sandbox --host api.example.com -f")
+	require.NotContains(t, lines, "-g ", "the deprecated -g spelling prints a warning into parsed output")
 }
 
 func TestParseSecretList(t *testing.T) {

@@ -60,6 +60,12 @@ func absLocal(ref string) string {
 //	refused: commands.startup, commands.initFiles, credentials
 //	         (including environment.proxyManaged), publishedPorts, volumes
 //
+// Those are the schemaVersion "1" key names. A "2" kit spells the same fields
+// permissions.network, setup.install, setup.startup, setup.files and
+// agentInstructions; sbx v0.38.0 gave "2" a decoder of its own, so the two sets
+// no longer interchange on input. The classification above is unchanged — the
+// CLI normalizes a v2 spec to the same internal shape before checking it.
+//
 // The remedy in each case is to recreate the sandbox with WithKit, which the
 // CLI's own message names. Verified 2026-07-27 against sbx v0.37.0; the list
 // is worded "does not yet" upstream and is expected to shrink.

@@ -8,20 +8,23 @@ import (
 
 // Definition is the create spec built from options.
 type Definition struct {
-	agent      string
-	workspaces []string // each may carry a ":ro" suffix
-	name       string
-	cpus       int
-	memory     string
-	profile    string
-	template   string
-	clone      bool
-	publish    []string // -p specs, applied at create time
-	kits       []string // --kit refs, applied at create time
-	agentArgs  []string
-	stdin      io.Reader
-	stdout     io.Writer
-	stderr     io.Writer
+	agent         string
+	workspaces    []string // each may carry a ":ro" suffix
+	name          string
+	cpus          int
+	memory        string
+	profile       string
+	template      string
+	clone         bool
+	publish       []string // -p specs, applied at create time
+	kits          []string // --kit refs, applied at create time
+	denyNetwork   []string // --deny-network hosts, applied at create time
+	staticMCP     []string // --static-mcp server names, fixed at create time
+	noShareSkills bool     // --no-share-skills, opt out of the shared skills store
+	agentArgs     []string
+	stdin         io.Reader
+	stdout        io.Writer
+	stderr        io.Writer
 }
 
 func newDefinition(opts ...Option) *Definition {
@@ -64,6 +67,15 @@ func (d *Definition) toCreateArgs() ([]string, error) {
 	for _, ref := range d.kits {
 		args = append(args, "--kit", absLocal(ref))
 	}
+	for _, host := range d.denyNetwork {
+		args = append(args, "--deny-network", host)
+	}
+	for _, name := range d.staticMCP {
+		args = append(args, "--static-mcp", name)
+	}
+	if d.noShareSkills {
+		args = append(args, "--no-share-skills")
+	}
 	if d.clone {
 		args = append(args, "--clone")
 	}
@@ -102,6 +114,15 @@ func (d *Definition) toRunArgs() ([]string, error) {
 	}
 	for _, ref := range d.kits {
 		args = append(args, "--kit", absLocal(ref))
+	}
+	for _, host := range d.denyNetwork {
+		args = append(args, "--deny-network", host)
+	}
+	for _, name := range d.staticMCP {
+		args = append(args, "--static-mcp", name)
+	}
+	if d.noShareSkills {
+		args = append(args, "--no-share-skills")
 	}
 	if d.clone {
 		args = append(args, "--clone")

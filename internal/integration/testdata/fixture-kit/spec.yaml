@@ -1,9 +1,15 @@
 # A minimal kit that `sbx kit add` accepts.
 #
-# DO NOT add credentials, publishedPorts, volumes, commands.startup or
-# commands.initFiles here. The kit-add recreate flow refuses all five
-# pre-flight, and TestSmoke_AddKitRecordsAbsolutePath would then fail for a
-# reason unrelated to what it tests.
+# DO NOT add credentials, publishedPorts, volumes, setup.startup or
+# setup.files here. The kit-add recreate flow refuses all five pre-flight, and
+# TestSmoke_AddKitRecordsAbsolutePath would then fail for a reason unrelated to
+# what it tests.
+#
+# sbx v0.38.0 gave schemaVersion "2" a decoder of its own, so the v1 key names
+# no longer parse under it: caps -> permissions, commands -> setup,
+# commands.initFiles -> setup.files, agentContext -> agentInstructions.
+# `kit inspect --json` still reports the normalized v1 shape (caps, commands),
+# so kit.Info is unaffected.
 schemaVersion: "2"
 kind: mixin
 name: fixture-kit
@@ -12,7 +18,7 @@ description: fixture for sbx-go-sdk integration tests
 environment:
   variables:
     SBX_GO_SDK_FIXTURE: "1"
-caps:
+permissions:
   network:
     allow:
       - api.example.com

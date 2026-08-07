@@ -82,3 +82,38 @@ func WithPublish(specs ...string) Option {
 func WithKit(refs ...string) Option {
 	return func(d *Definition) { d.kits = append(d.kits, refs...) }
 }
+
+// WithDenyNetwork adds per-sandbox network deny rules at creation time
+// (`--deny-network`, added in sbx v0.38.0). Each host applies only to the new
+// sandbox and can be listed or removed afterwards through the policy package.
+//
+// A local deny can only narrow egress, never widen it, so this stays allowed
+// under centralized governance. May be called once with several hosts or
+// repeatedly; hosts pass through unvalidated, as the CLI owns the grammar.
+func WithDenyNetwork(hosts ...string) Option {
+	return func(d *Definition) { d.denyNetwork = append(d.denyNetwork, hosts...) }
+}
+
+// WithoutSharedSkills opts the sandbox out of mounting the shared agent skills
+// store (`--no-share-skills`). Applies at creation only.
+//
+// The flag is hidden from `sbx create --help` unless the `feature.shareSkills`
+// setting is on, but it is registered either way and is accepted either way —
+// verified against sbx v0.38.0 with the feature off. What the flag *does*
+// therefore depends on that feature being active: with it off there is no
+// mount to opt out of, and passing this is a harmless no-op rather than an
+// error. Read the current state with settings.ListAll.
+func WithoutSharedSkills() Option {
+	return func(d *Definition) { d.noShareSkills = true }
+}
+
+// WithStaticMCP fixes the sandbox's static MCP server set (`--static-mcp`,
+// added in sbx v0.38.0). Each name must already be registered with the mcp
+// package (or `sbx mcp add`).
+//
+// The set is chosen once, at creation: `sbx run` ignores it when re-attaching
+// to an existing sandbox. To add a server to a running sandbox afterwards, use
+// mcp.Load. May be called once with several names or repeatedly.
+func WithStaticMCP(names ...string) Option {
+	return func(d *Definition) { d.staticMCP = append(d.staticMCP, names...) }
+}

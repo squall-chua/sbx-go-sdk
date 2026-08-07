@@ -104,6 +104,41 @@ func TestListRawAndProfiles(t *testing.T) {
 	require.Contains(t, prof, "POLICY-TEXT")
 }
 
+// The daemon's own response shape is a bare list of names
+// (sandboxapi.PolicyProfilesListResponse holds one []string).
+func TestProfileNames_DecodesNames(t *testing.T) {
+	var gotPath string
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Write([]byte(`{"profiles":["balanced","locked-down"]}`))
+	}))
+
+	got, err := ProfileNames(context.Background(), c)
+	require.NoError(t, err)
+	require.Equal(t, []string{"balanced", "locked-down"}, got)
+	require.Equal(t, "/policy/network/profiles", gotPath)
+}
+
+// An ungoverned host answers {"profiles":[]} — empty, not an error.
+func TestProfileNames_UngovernedHostIsEmptyNotAnError(t *testing.T) {
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"profiles":[]}`))
+	}))
+
+	got, err := ProfileNames(context.Background(), c)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestProfileNames_ReportsFormatDrift(t *testing.T) {
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"profiles":"not-a-list"}`))
+	}))
+
+	_, err := ProfileNames(context.Background(), c)
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
+}
+
 func TestList_UsesRESTAndAlwaysRequestsAllTypes(t *testing.T) {
 	var gotPath, gotType, gotSandbox string
 	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

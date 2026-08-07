@@ -1,7 +1,7 @@
 # sbx-go-sdk
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev/)
-[![sbx v0.37.0](https://img.shields.io/badge/sbx-v0.37.0-2496ED?logo=docker)](https://docs.docker.com/)
+[![sbx v0.38.0](https://img.shields.io/badge/sbx-v0.38.0-2496ED?logo=docker)](https://docs.docker.com/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/squall-chua/sbx-go-sdk.svg)](https://pkg.go.dev/github.com/squall-chua/sbx-go-sdk)
 
 A Go SDK for automating **Docker Sandboxes** (`sbx`) — isolated micro-VM environments
@@ -54,6 +54,7 @@ fmt.Printf("exit %d:\n%s", code, body)
   - [12. Settings & SSH](#12-settings--ssh)
   - [13. Skills](#13-skills)
   - [14. Kits](#14-kits)
+  - [15. MCP servers](#15-mcp-servers)
 - [Error handling](#error-handling)
 - [Runnable examples](#runnable-examples)
 - [Agent skill](#agent-skill)
@@ -152,7 +153,7 @@ sbx login
 **4. Verify** the CLI and daemon are healthy:
 
 ```bash
-sbx version    # CLI + daemon version (target this SDK against v0.37.0)
+sbx version    # CLI + daemon version (target this SDK against v0.38.0)
 sbx diagnose   # diagnose install / daemon issues
 sbx ls         # list sandboxes (an empty list means the daemon is reachable)
 ```
@@ -174,7 +175,7 @@ Requires:
   [Set up `sbx`](#set-up-sbx-prerequisite) above. The SDK shells out to it for create/run/cp/etc.
 - A reachable **`sandboxd`** — pass `client.WithAutoStart()` and the SDK will start it for you.
 
-This SDK is built and live-verified against **`sbx` / `sandboxd` v0.37.0** (daemon API `0.24.0`);
+This SDK is built and live-verified against **`sbx` / `sandboxd` v0.38.0** (daemon API `0.26.0`);
 see [Version alignment](#version-alignment) for how it tracks newer `sbx` releases.
 
 ## Quick start
@@ -239,6 +240,7 @@ func main() {
 | `ssh` | `…/ssh` | Experimental SSH endpoint: enable/disable, `setup`, connection targets — composed over `settings`. |
 | `skillstore` | `…/skillstore` | Import host agent-skill folders into sandboxd's shared skills store (experimental upstream). |
 | `kit` | `…/kit` | Read and package kit artifacts: inspect, validate, pack, push, pull (experimental upstream). |
+| `mcp` | `…/mcp` | Register MCP servers once and reuse them across sandboxes: add, list, inspect, remove, load. |
 
 Two return types are re-exported aliases so external callers never need `internal/*`:
 `sandbox.Info` (daemon sandbox description) and `client.Runner` (the `sbx`-binary runner).
@@ -265,7 +267,8 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Create a sandbox | `create` | v0.32.0 | `sandbox.Create` | ✅ |
 | Interactive agent session | `run` | v0.32.0 | `sandbox.Run`, `sb.Run` | ✅ |
 | List | `ls` | v0.32.0 | `sandbox.List`, `sandbox.Get` | ✅ |
-| Inspect | `inspect` | v0.32.0 | `sb.Inspect` | ⚠️ auth mode and active sessions are absent from `SandboxInfo` |
+| Inspect (REST) | `ls --json` | v0.32.0 | `sb.Inspect` | ✅ the daemon's own `SandboxInfo` |
+| Inspect (full summary) | `inspect --json` | v0.35.0 | `sb.Summary` | ✅ adds auth mode, injected secrets, session count, MCP-gateway state |
 | Start / stop / remove | `stop`, `rm` | v0.32.0 | `sb.Start`, `sb.Stop`, `sb.Remove` | ✅ |
 | Stable per-sandbox ID | — | v0.33.0 | `sb.ID()` | ✅ |
 | Mount-policy-denied flag | — | v0.33.0 | `sb.MountPolicyDenied()` | ✅ |
@@ -273,7 +276,9 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Remove every sandbox at once | `rm --all` | v0.37.0 | — | ❌ loop over `sandbox.List` |
 | Publish ports at create time | `-p/--publish` | v0.37.0 | `sandbox.WithPublish` | ✅ |
 | Clone, CPUs, memory, template, profile, name | flags | v0.32.0 | `sandbox.With*` | ✅ |
-| Skip skill sharing | `--no-share-skills` | v0.37.0 | — | ❌ gated off upstream by a remote feature flag |
+| Skip skill sharing | `--no-share-skills` | v0.37.0 | `sandbox.WithoutSharedSkills` | ⚠️ the flag always parses; whether it changes anything depends on the `feature.shareSkills` flag |
+| Per-sandbox deny rules at create time | `--deny-network` | v0.38.0 | `sandbox.WithDenyNetwork` | ✅ |
+| Fix the sandbox's MCP server set | `--static-mcp` | v0.38.0 | `sandbox.WithStaticMCP` | ✅ chosen once at create; `run` ignores it when re-attaching |
 
 **Exec**
 
@@ -316,7 +321,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Check whether an access is allowed | `policy check network` | v0.35.0 | `policy.Check` | ✅ |
 | Governance / org status on a check | — | v0.37.0 | `Authorization.Governance` | ⚠️ fields decoded; live behaviour unverified, no governed org to test against |
 | Inspect a policy or rule | `policy inspect` | v0.35.0 | `policy.InspectRaw` | ⚠️ raw text — no `--json` upstream |
-| List profiles | `policy profile ls` | v0.32.0 | `policy.Profiles` | ⚠️ raw text — no `--json` upstream |
+| List profiles | `policy profile ls` | v0.32.0 | `policy.ProfileNames`, `policy.Profiles` | ✅ `ProfileNames` is REST and typed — names are the daemon's own shape. Empty without a governed org |
 
 **Secrets** (experimental upstream)
 
@@ -328,7 +333,9 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Host wildcards on a custom secret | `--host` | v0.33.0 | `secret.SetCustom` | ✅ the pattern passes straight through |
 | Import credentials from host env | `secret import` | v0.35.0 | `secret.Import`, `secret.ImportAll` | ✅ |
 | List / remove | `secret ls`, `secret rm` | v0.32.0 | `secret.List`, `ListRaw`, `Remove`, `RemoveCustom` | ⚠️ `List` parses the CLI table — no `--json` upstream |
-| Store an OAuth token | `secret set --oauth` | v0.37.0 | — | ❌ interactive, and `openai`/global only |
+| Store an OAuth token | `secret set --oauth` | v0.37.0 | `secret.SetOAuth` | ⚠️ hands you the consent URL and blocks; `openai`/global only |
+| Global-by-default scope; `--sandbox` to narrow | `secret set/rm/ls` | v0.38.0 | whole `secret` package | ✅ the SDK emits the new spelling; `-g` and a positional sandbox name still work but print a deprecation warning into the parsed output |
+| Host-only registry credentials | `secret set --registry` (bare) | v0.38.0 | `secret.WithHostOnly`, `secret.HostOnlyScope` | ✅ global scope now emits `--all-sandboxes`, preserving the old meaning |
 
 **Kits** (experimental upstream)
 
@@ -351,6 +358,8 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Enable / disable the SSH endpoint | `feature.ssh` | v0.34.0 | `ssh.Enable`, `Disable`, `Enabled` | ✅ enabled by default as of v0.37.0 |
 | Write the SSH host config | `setup ssh` | v0.37.0 | `ssh.Setup`, `ssh.TargetFor` | ✅ path renamed from `ssh setup` in v0.37.0; both still work |
 | Import host skills into the shared store | `skills import` | v0.37.0 | `skillstore.Import` | ✅ |
+| List feature flags | `settings list --all` | v0.38.0 | `settings.ListAll` | ✅ before v0.38.0 flags were readable only one at a time via `Get` |
+| Know a setting needs a daemon restart | `RESTART` column | v0.38.0 | `settings.Setting.RequiresRestart` | ✅ apply it with `c.RestartDaemon` |
 
 **Daemon**
 
@@ -360,17 +369,19 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Liveness and version | — | v0.32.0 | `c.Health`, `c.DaemonHealth`, `c.Info` | ✅ `/daemon/health`; the standalone `GET /health` was removed in v0.35.0 |
 | Read / set log levels | `daemon log-level` | v0.32.0 | `c.LogLevels`, `c.SetLogLevel` | ✅ |
 | Daemon self-check report | — | v0.32.0 | `c.Diagnostics` | ⚠️ raw JSON; not the same as the `sbx diagnose` install checker |
+| Restart the daemon | `daemon restart` | v0.38.0 | `c.RestartDaemon` | ✅ waits for the socket to come back healthy |
 | Reset all state | `reset` | v0.32.0 | `c.Reset` | ✅ wipes **every** sandbox and all daemon state |
 | Client/daemon version negotiation | `POST /version` | removed v0.37.0 | `c.CheckVersion` | ❌ deprecated — upstream removed the route, so this always errors |
-| Diagnose an install | `diagnose` | v0.32.0 | — | ❌ never wrapped |
-| Sign in / sign out | `login`, `logout` | v0.32.0 | — | ❌ interactive browser OAuth |
-| Interactive host-config wizard | `setup` | v0.34.0 | — | ❌ interactive; distinct from `secret import` |
+| Diagnose an install | `diagnose -o json` | v0.32.0 | `c.Diagnose` | ⚠️ `--upload` is deliberately not wrapped |
+| Sign in / sign out | `login`, `logout` | v0.32.0 | `c.Login`, `c.Logout` | ⚠️ only the scriptable paths: token via stdin, and `logout --yes`. Bare `sbx login` is browser OAuth |
+| Detect host configuration | `setup` | v0.34.0 | `c.DetectSetup` | ⚠️ read-only detection only — the wizard half stays interactive |
 | Terminal dashboard | `tui` | v0.32.0 | — | ❌ out of scope for a library |
 
 Create-request fields the daemon accepts but `sbx create` cannot pass — `Environment`,
 `SecretsScope`, `PullPolicy`, `RootFilesystemSize`, `DindVolumeSize`, `EnableVirtiofsCache`,
-`Display`, `AgentOptions`, `BindingsPath`, `CredentialValues` — are unreachable from the SDK too,
-because creation shells out. Use `exec.WithEnv` for environment variables.
+`Display`, `AgentOptions`, `BindingsPath`, `CredentialValues`, and `ClonedWorkspaceSize` / `Gpu`
+(both new in v0.38.0) — are unreachable from the SDK too, because creation shells out. Use
+`exec.WithEnv` for environment variables.
 
 ---
 
@@ -405,10 +416,40 @@ res, _ := c.CheckVersion(ctx)          // deprecated: POST /version was removed 
 info, _ := c.Info(ctx)                 // socket paths
 _ = c.EnsureRunning(ctx)               // start + wait-for-healthy if needed
 _ = c.SetLogLevel(ctx, "proxy", "debug")
+_ = c.RestartDaemon(ctx)               // apply a Setting whose RequiresRestart is true
 _ = c.StopDaemon(ctx)                  // shut sandboxd down
 ```
 
+Checking the install, and signing in from a script:
+
+```go
+d, _ := c.Diagnose(ctx)                // the CLI-side install checker
+if !d.OK() {
+	for _, ch := range d.Checks {
+		if ch.Status == "fail" {
+			fmt.Println(ch.Name, ch.Message, ch.Hint)
+		}
+	}
+}
+
+// The only non-interactive way in. The token goes to stdin, never the argv.
+_ = c.Login(ctx, "me", os.Getenv("DOCKER_PAT"))
+
+// What `sbx setup` detects on this host, without running its wizard:
+rep, _ := c.DetectSetup(ctx)
+for _, it := range rep.Section("SKILLS") {
+	fmt.Println(it.Name, it.Detail, it.Status)   // "skills  54 skill(s), 2 folders  11 conflict(s)"
+}
+```
+
+`Diagnose` is the `sbx diagnose` install checker; `c.Diagnostics(ctx)` is the daemon's own, much
+larger `/daemon/diagnostics` report. A warning does not make `d.OK()` false — a host with no
+internet to check for CLI updates warns and still works. `diagnose --upload` is deliberately not
+wrapped: shipping host diagnostics to Docker support should be an explicit act.
+
 > ⚠️ Avoid `c.Reset(ctx)` unless you mean it: it wipes **all** sandboxes and daemon state.
+> `c.Logout(ctx)` is milder but still stops **every running sandbox** before signing out —
+> that is upstream's behaviour, not this SDK's addition.
 
 ### 2. Create a sandbox
 
@@ -452,6 +493,22 @@ sb.IsRunning()   // bool
 info, _ := sb.Inspect(ctx)
 fmt.Println(info.Status, info.Workspace, info.Ports)
 ```
+
+`Inspect` is REST and cheap. When you need what the daemon's own record does *not* carry — the
+auth mode, the injected secrets, the count of active sessions, or whether an MCP gateway is
+configured — use `Summary`, which shells out to `sbx inspect --json`:
+
+```go
+s, _ := sb.Summary(ctx)
+fmt.Println(s.AuthMode, s.Sessions, s.MCPGateway)
+for _, sec := range s.Secrets {
+	fmt.Println(sec.Name, sec.Source)   // e.g. "PROBE_KEY custom"
+}
+```
+
+`s.Sessions` is the count that makes a plain `Remove` fail — check it before reaching for
+`WithForce()`. Fields the CLI omits (`auth_mode` when unset, `ports`/`kits`/`secrets` when empty)
+decode as zero values.
 
 ### 4. Lifecycle: start / stop / remove
 
@@ -620,7 +677,8 @@ _ = policy.Reset(ctx, c)
 
 rules, _ := policy.List(ctx, c, "")                  // []policy.PolicyRule (REST, always type=all)
 raw, _ := policy.ListRaw(ctx, c, "")                 // unparsed text escape hatch
-prof, _ := policy.Profiles(ctx, c)                   // raw text (no --json upstream)
+prof, _ := policy.ProfileNames(ctx, c)               // []string of governance profile names
+rawProf, _ := policy.Profiles(ctx, c)                // deprecated: the CLI's own rendering
 log, _ := policy.Log(ctx, c)                         // structured: allowed/blocked hosts
 for _, e := range log.BlockedHosts {
 	fmt.Println("blocked:", e.Host, e.VMName)
@@ -667,6 +725,31 @@ _ = secret.RemoveCustom(ctx, c, "", "api.example.com") // a custom secret (keyed
 
 > ⚠️ `SetCustom` passes the value as a CLI argument, so it is briefly visible in host process
 > listings. Don't use it for high-sensitivity secrets in shared environments.
+
+The scope argument is unchanged — `""` still means global, a sandbox name still means that
+sandbox — but sbx v0.38.0 reshaped how the CLI spells it, so the SDK now emits `--sandbox NAME`
+(or nothing at all) instead of the deprecated `-g` and bare positional forms.
+
+One behaviour to know about registry credentials: v0.38.0 made a bare `secret set --registry`
+mean a **third** scope, `(host only)` — used for host-side template and kit pulls, injected into
+no sandbox. `SetRegistry(ctx, c, "", …)` keeps its original meaning (injected into every sandbox)
+by emitting `--all-sandboxes`. Ask for the new scope explicitly:
+
+```go
+_ = secret.SetRegistry(ctx, c, "", cred, secret.WithHostOnly()) // lists as secret.HostOnlyScope
+```
+
+Some services are OAuth-backed rather than token-backed. `SetOAuth` runs that handshake without
+needing a browser on the machine: it hands you the consent URL and blocks until someone approves.
+
+```go
+ctx, cancel := context.WithTimeout(ctx, 5*time.Minute) // nobody may ever consent
+defer cancel()
+
+err := secret.SetOAuth(ctx, c, "openai", func(url string) {
+	fmt.Println("Approve here:", url)   // print it, open it, post it to Slack — your call
+})
+```
 
 ---
 
@@ -760,6 +843,63 @@ Struct-valued fields on `kit.Info` and `kit.Manifest` stay as `json.RawMessage`
 your own when you need it. `Push` and `Pull` have never completed against a real registry — see
 [Known deviations](#known-deviations--limitations).
 
+### 15. MCP servers
+
+`mcp` wraps `sbx mcp` (added in sbx v0.38.0). Register a server **once** on the host, then reuse
+it: name it at creation, or attach it to a sandbox that is already running.
+
+```go
+// A remote endpoint. This contacts the URL, so it is a network call.
+_ = mcp.AddRemote(ctx, c, "deepwiki", "https://mcp.deepwiki.com/mcp")
+
+// A local stdio server. It runs on the HOST with your full permissions —
+// upstream documents this as ad-hoc development only.
+_ = mcp.AddLocal(ctx, c, "github", "npx", []string{"@modelcontextprotocol/server-github"})
+
+servers, _ := mcp.List(ctx, c)              // [{Name, Type: local|remote, Target}]
+d, _ := mcp.Inspect(ctx, c, "deepwiki")     // d.URL, d.Transport, d.RequiresOAuth, d.Fields
+
+// Fix the set at creation…
+sb, _ := sandbox.Create(ctx, c,
+    sandbox.WithAgent("claude"),
+    sandbox.WithWorkspace("."),
+    sandbox.WithStaticMCP("deepwiki", "github"),
+)
+
+// …or attach to a running sandbox. Connected agents see the new tools at once.
+_ = mcp.Load(ctx, c, "deepwiki", sb.Name())
+
+_ = mcp.Remove(ctx, c, "deepwiki")          // registration only; hosted OAuth creds survive
+```
+
+OAuth credentials stay on the host and never enter a sandbox. Registering an OAuth server would
+otherwise block on consent, so pass `mcp.WithSkipAuth()` and authorize when you are ready:
+
+```go
+_ = mcp.AddRemote(ctx, c, "notion", "https://mcp.notion.com/mcp", mcp.WithSkipAuth())
+
+ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+defer cancel()
+err := mcp.Authorize(ctx, c, "notion", func(url string) {
+	fmt.Println("Approve here:", url)
+})
+
+st, _ := mcp.AuthStatus(ctx, c)   // []mcp.AuthResult; .Authorized() per server
+```
+
+`Authorize` refreshes a merely-expired credential without consent, so `onURL` may never fire on a
+successful call. A confidential client's secret has no flag — store it first as the global secret
+`mcp:<name>.client_secret` (`secret.SetToken`), then pass `mcp.WithClientID`.
+
+```go
+mode, _ := c.MCPGatewayMode(ctx)  // {Decision: "local"|"saas", GatewayURL, Reason}
+```
+
+`List` and `Inspect` parse CLI tables — neither subcommand has a `--json` flag upstream
+([ADR 0002](docs/adr/0002-parse-sbx-table-output.md)). `mcp.Remove` on a name that was never
+registered is a silent success: the CLI exits 0. `mcp.AuthStatus` reports whether each OAuth server
+has a usable credential.
+
 ---
 
 ## Error handling
@@ -817,12 +957,12 @@ source. Invoke it with `/sbx-go-sdk`.
 ## Version alignment
 
 This SDK is **pinned to a tested `sbx` / `sandboxd` range**. It is currently built and
-live-verified against **`sbx` v0.37.0** with daemon REST **`api_version 0.24.0`**. Both values
+live-verified against **`sbx` v0.38.0** with daemon REST **`api_version 0.26.0`**. Both values
 are exported constants you can read at runtime:
 
 ```go
-client.ClientVersion    // "v0.37.0" — the sbx/daemon version the SDK was built against
-client.TestedAPIVersion // "0.24.0"  — the daemon REST api_version its wire types were generated from
+client.ClientVersion    // "v0.38.0" — the sbx/daemon version the SDK was built against
+client.TestedAPIVersion // "0.26.0"  — the daemon REST api_version its wire types were generated from
 ```
 
 **Why a pin exists.** The [transport is hybrid](#how-it-works): REST wire structs are generated
@@ -872,23 +1012,39 @@ contract test is what tells maintainers a re-sync is due.
 
 ## Known deviations & limitations
 
-Verified live against `sandboxd` v0.37.0:
+Verified live against `sandboxd` v0.38.0:
 
 - **`CopyFrom` is REST and auto-starts the sandbox** — `GET /sandbox/{name}/files?path=…` works as
   of v0.37.0 (it was `404` through v0.35.0). `CopyFrom` starts a stopped sandbox first, matching
   `sbx cp`'s own behaviour; this differs from `exec`, which requires an explicit `WithAutoStart()`.
   `CopyTo` still shells out — there is no REST upload path. `CopyFrom` places no cap on extracted
   size.
-- **`policy.List` is REST** — `GET /policy/network/rules` works as of v0.37.0 and always sends
-  `type=all` (omitting it silently drops filesystem rules with no error). A shape change yields
-  `client.ErrUnexpectedFormat`; use `policy.ListRaw` for the human table. `secret.List` still
-  parses the CLI table (no `--json` upstream); `policy.Profiles` is raw text.
+- **`policy.List` and `policy.ProfileNames` are REST** — `GET /policy/network/rules` works as of
+  v0.37.0 and always sends `type=all` (omitting it silently drops filesystem rules with no error).
+  A shape change yields `client.ErrUnexpectedFormat`; use `policy.ListRaw` / `policy.Profiles` for
+  the human text. `secret.List` still parses the CLI table (no `--json` upstream).
+- **Profiles are empty without remote governance.** `policy.ProfileNames` returns names only —
+  that is the daemon's own response shape, not a simplification here — and an ungoverned host has
+  none. Toggling the local `feature.profiles` setting does not change that. `policy.Profiles` is
+  the older text-returning call, kept (deprecated) so downstream callers still compile.
+- **The two OAuth flows block on a human.** `secret.SetOAuth` and `mcp.Authorize` hand you the
+  consent URL through an `onURL` callback and then wait on a loopback callback until someone
+  approves. Give them a cancellable context. Their success path is the one thing in this SDK that
+  could not be verified end to end — it needs a real browser and real credentials.
+- **`DetectSetup` is read-only.** `sbx setup` is a wizard on a terminal and a detection report
+  without one; the SDK forces the latter by handing the child an empty stdin. It never writes.
 - **`SaveTemplate` requires a stopped sandbox** — the daemon refuses to snapshot a running one,
   and the CLI would otherwise block on an interactive stop prompt.
 - **`UnpublishPort` is REST** — it first sends `GET /sandbox/{name}/ports` to resolve which keys
   match the spec, then `POST /sandbox/{name}/ports/unpublish` (body: a bare `[]PortKey` array);
   works as of v0.37.0.
 - **`secret.SetCustom` is experimental** and exposes the value via the process list.
+- **`mcp.List` and `mcp.Inspect` parse CLI output** — neither subcommand has a `--json` flag
+  upstream. `mcp.AuthStatus` and `mcp.AuthRemove` do get JSON (`--format json`). `sbx mcp auth
+  <name>` (interactive browser OAuth) is not wrapped: register with `mcp.WithSkipAuth()`,
+  authorize out of band, then confirm with `mcp.AuthStatus`.
+- **`sbx mcp rm` on an unregistered name exits 0** — so `mcp.Remove` cannot tell you whether it
+  actually removed anything. Call `mcp.List` first if that distinction matters.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the
   value to the child process's stdin rather than passing it as a CLI argument, so unlike
   `SetCustom` it does not appear in the host process list. Confirmed by a live run: `--force`

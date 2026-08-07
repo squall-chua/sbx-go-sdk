@@ -22,6 +22,115 @@ func TestHealth(t *testing.T) {
 	require.Equal(t, "v0.35.0 abc", h.Version)
 }
 
+// Trimmed from a live `sbx diagnose -o json` run at sbx v0.38.0. The "Binary
+// version" warn is what a host with no reachable update endpoint reports — a
+// warning must not make the whole diagnosis fail.
+func TestDiagnose(t *testing.T) {
+	const out = `{"version":"1.0","checks":[
+	  {"name":"CLI binary","status":"pass","message":"found","detail":"/usr/bin/sbx","hint":""},
+	  {"name":"Binary version","status":"warn","message":"could not check for updates","detail":"unexpected status code: 403","hint":""},
+	  {"name":"Daemon","status":"pass","message":"healthy","detail":"version v0.38.0","hint":""}],
+	  "summary":{"pass":2,"warn":1,"fail":0,"skip":0}}`
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + filepath.Join(dir, "args.txt") + "\ncat <<'EOF'\n" + out + "\nEOF\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	d, err := c.Diagnose(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "1.0", d.Version)
+	require.Len(t, d.Checks, 3)
+	require.Equal(t, "warn", d.Checks[1].Status)
+	require.Equal(t, "unexpected status code: 403", d.Checks[1].Detail)
+	require.Equal(t, DiagnosticSummary{Pass: 2, Warn: 1}, d.Summary)
+	require.True(t, d.OK(), "a warning is not a failure")
+
+	args, err := os.ReadFile(filepath.Join(dir, "args.txt"))
+	require.NoError(t, err)
+	require.Contains(t, string(args), "diagnose -o json")
+	require.NotContains(t, string(args), "--upload",
+		"Diagnose must never ship the report to Docker support on its own")
+}
+
+// Login and Logout are never exercised against a live daemon: one would need
+// real Docker credentials and the other would sign the user out and stop every
+// running sandbox. The argument vector is the contract worth pinning.
+func TestLogin_TokenGoesToStdinNotArgv(t *testing.T) {
+	dir := t.TempDir()
+	argFile, stdinFile := filepath.Join(dir, "args.txt"), filepath.Join(dir, "stdin.txt")
+	bin := filepath.Join(dir, "sbx")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + argFile + "\ncat > " + stdinFile + "\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+	require.NoError(t, c.Login(context.Background(), "me", "dckr_pat_secret"))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "login --username me --password-stdin")
+	require.NotContains(t, string(args), "dckr_pat_secret",
+		"the token must never appear in the argument vector")
+
+	stdin, err := os.ReadFile(stdinFile)
+	require.NoError(t, err)
+	require.Equal(t, "dckr_pat_secret\n", string(stdin))
+}
+
+func TestLogin_RejectsEmptyInputBeforeShellOut(t *testing.T) {
+	dir := t.TempDir()
+	argFile := filepath.Join(dir, "args.txt")
+	bin := filepath.Join(dir, "sbx")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\ntouch "+argFile+"\n"), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+	require.Error(t, c.Login(context.Background(), "", "tok"))
+	require.Error(t, c.Login(context.Background(), "me", ""))
+	require.NoFileExists(t, argFile, "no call should have reached the CLI")
+}
+
+func TestLogout_AlwaysSkipsTheConfirmationPrompt(t *testing.T) {
+	dir := t.TempDir()
+	argFile := filepath.Join(dir, "args.txt")
+	bin := filepath.Join(dir, "sbx")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + argFile + "\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+	require.NoError(t, c.Logout(context.Background()))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "logout --yes",
+		"without --yes the prompt blocks on non-interactive stdin")
+}
+
+func TestDiagnose_FailCountDrivesOK(t *testing.T) {
+	d := &Diagnosis{Summary: DiagnosticSummary{Pass: 1, Fail: 1}}
+	require.False(t, d.OK())
+}
+
+// Captured verbatim from a v0.38.0 daemon on a host with no SaaS entitlement.
+func TestMCPGatewayMode(t *testing.T) {
+	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/mcp/gateway-mode", r.URL.Path)
+		w.Write([]byte(`{"decision":"local","gateway_url":"none","reason":"not entitled to the SaaS gateway → local"}`))
+	}))
+	c, _ := New(context.Background(), WithSocketPath(sock))
+	m, err := c.MCPGatewayMode(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "local", m.Decision)
+	require.Equal(t, "none", m.GatewayURL)
+	require.Contains(t, m.Reason, "not entitled")
+}
+
 // CheckVersion is now informational only (see daemon.go) — it still wraps the
 // dead /version endpoint, returning whatever the daemon reports verbatim.
 func TestCheckVersion(t *testing.T) {
