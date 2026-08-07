@@ -136,7 +136,38 @@ func ListRaw(ctx context.Context, c *client.Client, scope string) (string, error
 	return capture(ctx, c, args...)
 }
 
-// Profiles returns the raw `sbx policy profile ls` text.
+// ProfileNames returns the governance profile names the daemon knows
+// (REST GET /policy/network/profiles). Assign one at creation with
+// sandbox.WithProfile.
+//
+// Profiles come from remote governance, so an ungoverned host has none and this
+// returns an empty slice with a nil error. Enabling the local feature.profiles
+// setting does not change that — verified at sbx v0.38.0, where the endpoint
+// answers {"profiles":[]} either way.
+//
+// The response carries names only. That is the daemon's own shape
+// (sandboxapi.PolicyProfilesListResponse is a lone []string), not a
+// simplification made here — there is no richer per-profile record to fetch.
+// Use Profiles for the CLI's own rendering.
+func ProfileNames(ctx context.Context, c *client.Client) ([]string, error) {
+	var resp struct {
+		Profiles []string `json:"profiles"`
+	}
+	if err := c.Transport().DoJSON(ctx, http.MethodGet, "/policy/network/profiles", nil, &resp); err != nil {
+		if isDecodeError(err) {
+			return nil, fmt.Errorf("policy-profiles: %w: %w", client.ErrUnexpectedFormat, err)
+		}
+		return nil, client.MapError("policy-profiles", err)
+	}
+	return resp.Profiles, nil
+}
+
+// Profiles returns the raw `sbx policy profile ls` text. With no profiles it
+// prints prose ("No policy profiles found"), not an empty table.
+//
+// Deprecated: prefer ProfileNames, which is REST-backed and returns the profile
+// names as a slice. This keeps its original signature so downstream callers
+// still compile; it is not going away, it is just the less useful of the two.
 func Profiles(ctx context.Context, c *client.Client) (string, error) {
 	return capture(ctx, c, "policy", "profile", "ls")
 }
