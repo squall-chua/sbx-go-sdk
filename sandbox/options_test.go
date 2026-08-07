@@ -59,6 +59,52 @@ func TestWithPublish_AbsentWhenUnset(t *testing.T) {
 	require.NotContains(t, args, "-p")
 }
 
+// --deny-network and --static-mcp both arrived in sbx v0.38.0 and both repeat
+// rather than taking a list.
+func TestWithDenyNetworkAndStaticMCP_EmitRepeatedFlagsOnCreateAndRun(t *testing.T) {
+	d := newDefinition(
+		WithAgent("shell"),
+		WithWorkspace("/ws"),
+		WithDenyNetwork("evil.example.com", "*.tracker.io"),
+		WithStaticMCP("notion", "atlassian"),
+	)
+
+	for name, build := range map[string]func() ([]string, error){
+		"create": d.toCreateArgs,
+		"run":    d.toRunArgs,
+	} {
+		args, err := build()
+		require.NoError(t, err, name)
+		require.Subset(t, args, []string{"--deny-network", "evil.example.com"}, name)
+		require.Subset(t, args, []string{"--deny-network", "*.tracker.io"}, name)
+		require.Subset(t, args, []string{"--static-mcp", "notion"}, name)
+		require.Subset(t, args, []string{"--static-mcp", "atlassian"}, name)
+	}
+}
+
+func TestWithDenyNetworkAndStaticMCP_AbsentWhenUnset(t *testing.T) {
+	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"))
+	args, err := d.toCreateArgs()
+	require.NoError(t, err)
+	require.NotContains(t, args, "--deny-network")
+	require.NotContains(t, args, "--static-mcp")
+	require.NotContains(t, args, "--no-share-skills")
+}
+
+// The flag is hidden from --help unless feature.shareSkills is on, but it
+// parses either way, so the SDK emits it unconditionally.
+func TestWithoutSharedSkills(t *testing.T) {
+	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"), WithoutSharedSkills())
+
+	createArgs, err := d.toCreateArgs()
+	require.NoError(t, err)
+	require.Contains(t, createArgs, "--no-share-skills")
+
+	runArgs, err := d.toRunArgs()
+	require.NoError(t, err)
+	require.Contains(t, runArgs, "--no-share-skills")
+}
+
 func TestWithKit_EmitsRepeatedFlagOnCreate(t *testing.T) {
 	d := newDefinition(
 		WithAgent("shell"),
