@@ -42,9 +42,10 @@ func TestSetToken_GlobalScope(t *testing.T) {
 
 	args, err := os.ReadFile(argFile)
 	require.NoError(t, err)
-	require.Contains(t, string(args), "secret set")
-	require.Contains(t, string(args), "-g")
-	require.Contains(t, string(args), "anthropic")
+	// Global is the CLI default as of sbx v0.38.0, so no scope argument at all.
+	require.Contains(t, string(args), "secret set anthropic")
+	require.NotContains(t, string(args), "-g")
+	require.NotContains(t, string(args), "--sandbox")
 	require.NotContains(t, string(args), "sk-test",
 		"the token must never appear in the argument vector")
 
@@ -62,7 +63,7 @@ func TestSetToken_SandboxScopeAndOverwrite(t *testing.T) {
 
 	args, err := os.ReadFile(argFile)
 	require.NoError(t, err)
-	require.Contains(t, string(args), "my-sandbox")
+	require.Contains(t, string(args), "--sandbox my-sandbox")
 	require.Contains(t, string(args), "--force")
 	require.NotContains(t, string(args), "-g")
 }
@@ -97,6 +98,55 @@ func TestSetRegistry_PasswordGoesToStdinNotArgv(t *testing.T) {
 	stdin, err := os.ReadFile(stdinFile)
 	require.NoError(t, err)
 	require.Equal(t, "ghp_secret\n", string(stdin))
+}
+
+// A bare `secret set --registry` stores a host-only entry as of sbx v0.38.0,
+// where it used to mean global. Global scope must therefore spell itself
+// --all-sandboxes so the SDK keeps storing an entry injected into every sandbox.
+func TestSetRegistry_GlobalScopeMeansAllSandboxes(t *testing.T) {
+	dir := t.TempDir()
+	argFile := filepath.Join(dir, "args.txt")
+	c := stdinRecordingClient(t, argFile, filepath.Join(dir, "stdin.txt"), "")
+
+	require.NoError(t, SetRegistry(context.Background(), c, "", RegistryCredential{
+		Host: "ghcr.io", Password: "tok",
+	}))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "--all-sandboxes")
+}
+
+func TestSetRegistry_HostOnlyOmitsAllSandboxes(t *testing.T) {
+	dir := t.TempDir()
+	argFile := filepath.Join(dir, "args.txt")
+	c := stdinRecordingClient(t, argFile, filepath.Join(dir, "stdin.txt"), "")
+
+	require.NoError(t, SetRegistry(context.Background(), c, "", RegistryCredential{
+		Host: "ghcr.io", Password: "tok",
+	}, WithHostOnly()))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.NotContains(t, string(args), "--all-sandboxes")
+	require.NotContains(t, string(args), "--sandbox")
+}
+
+// A sandbox scope wins over WithHostOnly: the two are mutually exclusive in the
+// CLI, and an explicit sandbox is the more specific request.
+func TestSetRegistry_SandboxScopeIgnoresHostOnly(t *testing.T) {
+	dir := t.TempDir()
+	argFile := filepath.Join(dir, "args.txt")
+	c := stdinRecordingClient(t, argFile, filepath.Join(dir, "stdin.txt"), "")
+
+	require.NoError(t, SetRegistry(context.Background(), c, "my-sandbox", RegistryCredential{
+		Host: "ghcr.io", Password: "tok",
+	}, WithHostOnly()))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "--sandbox my-sandbox")
+	require.NotContains(t, string(args), "--all-sandboxes")
 }
 
 func TestSetRegistry_OmitsUsernameWhenEmpty(t *testing.T) {
@@ -165,7 +215,7 @@ func TestSetToken_ExistingSecretInSameSandboxScopeIsRejected(t *testing.T) {
 
 	args, err := os.ReadFile(argFile)
 	require.NoError(t, err)
-	require.Contains(t, string(args), "secret ls my-sandbox",
+	require.Contains(t, string(args), "secret ls --sandbox my-sandbox",
 		"List must pass the sandbox scope through to the ls lookup, not just query the default")
 	for _, line := range strings.Split(string(args), "\n") {
 		require.NotContains(t, line, "secret set",

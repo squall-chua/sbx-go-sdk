@@ -22,14 +22,18 @@ type CustomSecret struct {
 	Placeholder string   // optional; supports a {rand} suffix
 }
 
-// scopeArg returns "-g" for global ("") or the sandbox name as a positional arg.
-// NOTE: `sbx secret` uses "-g"/bare positional; `sbx policy` uses "--sandbox NAME"
-// (see policy.scopeArgs). The encodings differ per CLI on purpose — do not unify.
-func scopeArg(scope string) string {
+// scopeArgs returns nothing for global ("") or `--sandbox NAME` for a sandbox.
+//
+// sbx v0.38.0 made global the default scope for service and custom secrets and
+// deprecated both older spellings: `-g` prints "Flag --global has been
+// deprecated…" and a bare positional sandbox name prints "positional sandbox
+// scope is deprecated". Those warnings land in the captured output the SDK
+// parses, so the SDK emits the new form. This now matches policy.scopeArgs.
+func scopeArgs(scope string) []string {
 	if scope == "" {
-		return "-g"
+		return nil
 	}
-	return scope
+	return []string{"--sandbox", scope}
 }
 
 // SetCustom creates/updates a custom secret in scope ("" = global). EXPERIMENTAL.
@@ -42,7 +46,7 @@ func scopeArg(scope string) string {
 // those three were fixed for (see README's "Known deviations & limitations")
 // — not verified either way; fixing it is out of scope here.
 func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecret) error {
-	args := []string{"secret", "set-custom", scopeArg(scope)}
+	args := append([]string{"secret", "set-custom"}, scopeArgs(scope)...)
 	if s.Host != "" {
 		args = append(args, "--host", s.Host)
 	}
@@ -110,10 +114,7 @@ func List(ctx context.Context, c *client.Client, scope string) (*Secrets, error)
 // every scope, not just global — only `-g` means global-only, and ListRaw has
 // no way to request that.
 func ListRaw(ctx context.Context, c *client.Client, scope string) (string, error) {
-	args := []string{"secret", "ls"}
-	if scope != "" {
-		args = append(args, scope)
-	}
+	args := append([]string{"secret", "ls"}, scopeArgs(scope)...)
 	r, err := c.Runner()
 	if err != nil {
 		return "", err
@@ -182,7 +183,13 @@ func checkNotStored(ctx context.Context, c *client.Client, scope, typ, name stri
 	if overwrite {
 		return nil
 	}
-	existing, err := List(ctx, c, scope)
+	// HostOnlyScope is a display label, not a sandbox name, so it cannot narrow
+	// the listing — list every scope and let the row filter below do the work.
+	listScope := scope
+	if listScope == HostOnlyScope {
+		listScope = ""
+	}
+	existing, err := List(ctx, c, listScope)
 	if err != nil {
 		return fmt.Errorf("%s: cannot check existing secrets: %w", verb, err)
 	}
@@ -215,10 +222,17 @@ func normScope(s string) string {
 	return s
 }
 
+// HostOnlyScope is the Stored.Scope value of a registry credential that is used
+// for host-side template and kit pulls but injected into no sandbox — the third
+// scope sbx v0.38.0 added alongside global and per-sandbox. It is not a sandbox
+// name and cannot be passed as a scope argument; write such an entry with
+// SetRegistry + WithHostOnly.
+const HostOnlyScope = "(host only)"
+
 // Remove deletes a secret (service) in scope ("" = global). Uses -f to skip the
 // confirmation prompt (the CLI would otherwise block on non-TTY stdin).
 func Remove(ctx context.Context, c *client.Client, scope, service string) error {
-	args := []string{"secret", "rm", scopeArg(scope)}
+	args := append([]string{"secret", "rm"}, scopeArgs(scope)...)
 	if service != "" {
 		args = append(args, service)
 	}
@@ -248,6 +262,8 @@ func RemoveCustom(ctx context.Context, c *client.Client, scope, host string) err
 	if err != nil {
 		return err
 	}
-	_, err = r.Capture(ctx, nil, "secret", "rm", scopeArg(scope), "--host", host, "-f")
+	args := append([]string{"secret", "rm"}, scopeArgs(scope)...)
+	args = append(args, "--host", host, "-f")
+	_, err = r.Capture(ctx, nil, args...)
 	return err
 }
