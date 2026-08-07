@@ -21,6 +21,16 @@ type Setting struct {
 	Type        string          `json:"type"`  // "bool"|"int"|"float"|"string"|"json"
 	Source      string          `json:"source"`
 	Description string          `json:"description"`
+
+	// RequiresRestart reports that the daemon only reads this setting at startup,
+	// so a change takes effect after client.RestartDaemon rather than within the
+	// usual ~5s reload. Added by sbx v0.38.0 (the RESTART column of
+	// `sbx settings list`); older daemons omit it and it decodes as false.
+	RequiresRestart bool `json:"requires_restart"`
+
+	// FeatureFlag marks a structured feature flag (feature.ssh and friends),
+	// whose Value is an object rather than a scalar. Added by sbx v0.38.0.
+	FeatureFlag bool `json:"feature_flag"`
 }
 
 // Bool decodes the value as a JSON boolean. Unlike ssh.Enabled, a
@@ -52,9 +62,25 @@ func capture(ctx context.Context, c *client.Client, args ...string) (string, err
 	return r.Capture(ctx, nil, args...)
 }
 
-// List returns all settings (`sbx settings list --json`).
+// List returns all settings (`sbx settings list --json`). Feature flags are
+// excluded; use ListAll for those.
 func List(ctx context.Context, c *client.Client) ([]Setting, error) {
-	out, err := capture(ctx, c, "settings", "list", "--json")
+	return list(ctx, c, false)
+}
+
+// ListAll returns all settings including the structured feature flags
+// (`sbx settings list --all --json`, added in sbx v0.38.0 — before it, feature
+// flags were readable only one at a time through Get).
+func ListAll(ctx context.Context, c *client.Client) ([]Setting, error) {
+	return list(ctx, c, true)
+}
+
+func list(ctx context.Context, c *client.Client, all bool) ([]Setting, error) {
+	args := []string{"settings", "list", "--json"}
+	if all {
+		args = append(args, "--all")
+	}
+	out, err := capture(ctx, c, args...)
 	if err != nil {
 		return nil, err
 	}
