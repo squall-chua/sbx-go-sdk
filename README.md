@@ -1,7 +1,7 @@
 # sbx-go-sdk
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev/)
-[![sbx v0.38.0](https://img.shields.io/badge/sbx-v0.38.0-2496ED?logo=docker)](https://docs.docker.com/)
+[![sbx v0.39.0](https://img.shields.io/badge/sbx-v0.39.0-2496ED?logo=docker)](https://docs.docker.com/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/squall-chua/sbx-go-sdk.svg)](https://pkg.go.dev/github.com/squall-chua/sbx-go-sdk)
 
 A Go SDK for automating **Docker Sandboxes** (`sbx`) — isolated micro-VM environments
@@ -153,7 +153,7 @@ sbx login
 **4. Verify** the CLI and daemon are healthy:
 
 ```bash
-sbx version    # CLI + daemon version (target this SDK against v0.38.0)
+sbx version    # CLI + daemon version (target this SDK against v0.39.0)
 sbx diagnose   # diagnose install / daemon issues
 sbx ls         # list sandboxes (an empty list means the daemon is reachable)
 ```
@@ -175,7 +175,7 @@ Requires:
   [Set up `sbx`](#set-up-sbx-prerequisite) above. The SDK shells out to it for create/run/cp/etc.
 - A reachable **`sandboxd`** — pass `client.WithAutoStart()` and the SDK will start it for you.
 
-This SDK is built and live-verified against **`sbx` / `sandboxd` v0.38.0** (daemon API `0.26.0`);
+This SDK is built and live-verified against **`sbx` / `sandboxd` v0.39.0** (daemon API `0.26.0`);
 see [Version alignment](#version-alignment) for how it tracks newer `sbx` releases.
 
 ## Quick start
@@ -275,6 +275,8 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Force-remove an active session | `rm -f` | v0.35.0 | `sandbox.WithForce()` | ✅ |
 | Remove every sandbox at once | `rm --all` | v0.37.0 | — | ❌ loop over `sandbox.List` |
 | Publish ports at create time | `-p/--publish` | v0.37.0 | `sandbox.WithPublish` | ✅ |
+| Set env vars at create time | `-e/--env`, `--env-file` | v0.39.0 | `sandbox.WithEnv`, `WithEnvFile` | ✅ the only route to the daemon's `Environment` field; a bare `KEY` inherits from your process |
+| Remove all stopped sandboxes | `prune` | v0.39.0 | `sandbox.Prune` | ✅ `WithDryRun`, `WithStoppedLongerThan`; always passes `--force`, which also removes an in-use sandbox |
 | Clone, CPUs, memory, template, profile, name | flags | v0.32.0 | `sandbox.With*` | ✅ |
 | Skip skill sharing | `--no-share-skills` | v0.37.0 | `sandbox.WithoutSharedSkills` | ⚠️ the flag always parses; whether it changes anything depends on the `feature.shareSkills` flag |
 | Per-sandbox deny rules at create time | `--deny-network` | v0.38.0 | `sandbox.WithDenyNetwork` | ✅ |
@@ -334,6 +336,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Import credentials from host env | `secret import` | v0.35.0 | `secret.Import`, `secret.ImportAll` | ✅ |
 | List / remove | `secret ls`, `secret rm` | v0.32.0 | `secret.List`, `ListRaw`, `Remove`, `RemoveCustom` | ⚠️ `List` parses the CLI table — no `--json` upstream |
 | Store an OAuth token | `secret set --oauth` | v0.37.0 | `secret.SetOAuth` | ⚠️ hands you the consent URL and blocks; `openai`/global only |
+| Resolve a secret on demand | `set --ref/--command` | v0.39.0 | `secret.FromRef`, `FromCommand`, `WithRefresh`, `WithoutVerify` | ✅ `--ref` is shape-only here (no `op` binary, no AWS creds); `--command` is verified live |
 | Global-by-default scope; `--sandbox` to narrow | `secret set/rm/ls` | v0.38.0 | whole `secret` package | ✅ the SDK emits the new spelling; `-g` and a positional sandbox name still work but print a deprecation warning into the parsed output |
 | Host-only registry credentials | `secret set --registry` (bare) | v0.38.0 | `secret.WithHostOnly`, `secret.HostOnlyScope` | ✅ global scope now emits `--all-sandboxes`, preserving the old meaning |
 
@@ -347,6 +350,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Push / pull an OCI v2 artifact | `kit push`, `kit pull` | v0.34.0 | `kit.Push`, `kit.Pull` | ⚠️ never completed against a live registry |
 | Attach kits at create time | `create --kit` | v0.34.0 | `sandbox.WithKit` | ✅ |
 | Add a kit to an existing sandbox | `kit add` | v0.35.0 | `sb.AddKit` | ⚠️ the CLI refuses kits declaring credentials, ports, volumes or startup commands |
+| Sign / verify a kit | `kit sign`, `verify`, `provenance` | v0.39.0 | `kit.Sign`, `Verify`, `Provenance`, `kit.WithSign` | ⚠️ key-based local signing verified live; keyless and every OCI path are shape-only |
 | Read a sandbox's kit list | `inspect` | v0.35.0 | `sb.Kits` | ⚠️ read from the `com.docker.sandbox.kits` label; empty if upstream renames it |
 | Restrict kit sources | `kit.allowedSources` | v0.34.0 | `settings.Set` | ✅ via the generic settings API |
 
@@ -370,6 +374,11 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Read / set log levels | `daemon log-level` | v0.32.0 | `c.LogLevels`, `c.SetLogLevel` | ✅ |
 | Daemon self-check report | — | v0.32.0 | `c.Diagnostics` | ⚠️ raw JSON; not the same as the `sbx diagnose` install checker |
 | Restart the daemon | `daemon restart` | v0.38.0 | `c.RestartDaemon` | ✅ waits for the socket to come back healthy |
+| Find the daemon log file | `daemon status --json` | v0.39.0 | `c.DaemonLogPath` | ✅ separate from `DaemonStatus`, which stays pure REST |
+| List the shared skills store | `skills ls` | v0.39.0 | `skillstore.List` | ✅ reports the store path and its folder names |
+| Undo the SSH client config | `setup ssh remove` | v0.39.0 | `ssh.RemoveSetup` | ✅ not the same as `ssh.Disable`, which turns off `feature.ssh` |
+| Export a template to a tar | `template save -o` | v0.39.0 | `sandbox.WithExport` | ✅ |
+| Keep secrets across a reset | `reset --preserve-secrets` | v0.39.0 | — | ❌ `POST /daemon/reset` takes no body, so this is CLI-only while `c.Reset` is REST; settling which spelling preserves what needs a destructive run |
 | Reset all state | `reset` | v0.32.0 | `c.Reset` | ✅ wipes **every** sandbox and all daemon state |
 | Client/daemon version negotiation | `POST /version` | removed v0.37.0 | `c.CheckVersion` | ❌ deprecated — upstream removed the route, so this always errors |
 | Diagnose an install | `diagnose -o json` | v0.32.0 | `c.Diagnose` | ⚠️ `--upload` is deliberately not wrapped |
@@ -446,6 +455,12 @@ for _, it := range rep.Section("SKILLS") {
 larger `/daemon/diagnostics` report. A warning does not make `d.OK()` false — a host with no
 internet to check for CLI updates warns and still works. `diagnose --upload` is deliberately not
 wrapped: shipping host diagnostics to Docker support should be an explicit act.
+
+A failing check is a result, not an error. The CLI exits non-zero whenever any check fails and
+still prints the whole report, so `Diagnose` returns the report with a nil error however the CLI
+exited — read `d.OK()` or `d.Summary.Fail`. The exit code only surfaces when there is no report
+to return, such as a missing binary. Before v0.39.0 the SDK returned the exit error and dropped
+the report, which lost exactly the diagnosis a broken host needed.
 
 > ⚠️ Avoid `c.Reset(ctx)` unless you mean it: it wipes **all** sandboxes and daemon state.
 > `c.Logout(ctx)` is milder but still stops **every running sandbox** before signing out —
@@ -726,6 +741,32 @@ _ = secret.RemoveCustom(ctx, c, "", "api.example.com") // a custom secret (keyed
 > ⚠️ `SetCustom` passes the value as a CLI argument, so it is briefly visible in host process
 > listings. Don't use it for high-sensitivity secrets in shared environments.
 
+**Resolve secrets on demand instead of storing them** (sbx v0.39.0). The store then holds only a
+reference, and the daemon fetches the value when a sandbox needs it:
+
+```go
+// A 1Password reference, or an AWS Secrets Manager ARN.
+_ = secret.SetToken(ctx, c, "", "anthropic", "",
+	secret.FromRef("op://vault/item/field"),
+	secret.WithRefresh("30m"),
+)
+
+// Or a command's standard output.
+_ = secret.SetCustom(ctx, c, "",
+	secret.CustomSecret{Host: "api.example.com", Env: "API_KEY"},
+	secret.FromCommand("vault read -field=key secret/ai"),
+)
+```
+
+Pass the value **or** a resolver, never both and never neither — the SDK refuses every other
+combination before the CLI is invoked, which is why the literal above is `""`. The resolver is
+checked once when the secret is stored, so a broken one fails immediately and stores nothing;
+`WithoutVerify` skips that check for a vault that is not unlocked yet.
+
+> ⚠️ `FromCommand`'s command text is stored and shown in full by `secret ls`, so a secret embedded
+> in the command leaks. `FromRef` is the safer choice where it fits. `WithResolverErrors` is off by
+> default for the same reason: upstream warns that a resolver's standard error may contain secrets.
+
 The scope argument is unchanged — `""` still means global, a sandbox name still means that
 sandbox — but sbx v0.38.0 reshaped how the CLI spells it, so the SDK now emits `--sandbox NAME`
 (or nothing at all) instead of the deprecated `-g` and bare positional forms.
@@ -822,7 +863,7 @@ refs, _ := sb.Kits(ctx) // []string, in the order they were added
 
 ```go
 info, _ := kit.Inspect(ctx, c, "./my-kit")   // dir, ZIP, git repo, or OCI reference
-fmt.Println(info.Manifest.Name, info.Manifest.Kind, info.Warnings)
+fmt.Println(info.Name, info.Kind, info.Warnings)
 
 err := kit.Validate(ctx, c, "./my-kit")      // dir, ZIP or git repo — NOT an OCI reference
 if errors.Is(err, client.ErrKitRejected) {
@@ -837,10 +878,62 @@ defer cancel()
 _ = kit.Push(pushCtx, c, "./my-kit", "ghcr.io/me/kit:v1")
 ```
 
+**Sign and verify kits** (sbx v0.39.0). Signing is cosign-compatible Sigstore, keyless by default
+or key-based with `WithKey`:
+
+```go
+_ = kit.Sign(ctx, c, "./my-kit", kit.WithKey("cosign.key"))     // writes kit.sig.bundle
+
+err := kit.Verify(ctx, c, "./my-kit", kit.WithPublicKey("cosign.pub"))
+if errors.Is(err, client.ErrSignatureInvalid) {
+	// absent, wrong signer, or the kit changed after signing — do not install it
+}
+
+// Keyless: name the identity you accept, and the issuer that vouches for it.
+_ = kit.Verify(ctx, c, "ghcr.io/me/kit:v1",
+	kit.WithCertificateIdentity("me@example.com"),
+	kit.WithCertificateOIDCIssuer("https://accounts.google.com"),
+)
+
+_ = kit.Push(ctx, c, "./my-kit", "ghcr.io/me/kit:v1", kit.WithSign(kit.WithKey("cosign.key")))
+att, _ := kit.Provenance(ctx, c, "ghcr.io/me/kit:v1")           // SLSA attestation, as printed
+```
+
+Branch on `client.ErrSignatureInvalid`, not on any error: being asked to verify wrongly — keyless
+with no accepted identity, a missing file — stays a plain `*client.CLIError`, so "I asked wrongly"
+can never be read as "this kit is untrustworthy". Whether a sandbox *requires* a valid signature is
+a daemon setting, not a decision these calls make: see `kit.requireSignature`, `kit.trustedSigners`
+and `kit.ignoreTransparencyLog` via the `settings` package.
+
+Only the key-based local-directory path is verified live. Keyless needs an OIDC provider and every
+OCI path needs a registry, so those — and `Provenance`, which only exists on a pushed kit — are
+shape-only. See [Known deviations](#known-deviations--limitations).
+
 `Inspect` returns a report, not the kit — it omits the `files/` payload that `Pack` writes.
-Struct-valued fields on `kit.Info` and `kit.Manifest` stay as `json.RawMessage`
+Struct-valued fields on `kit.Info` stay as `json.RawMessage`
 ([ADR 0005](docs/adr/0005-type-kit-strings-pass-structs-through.md)); unmarshal one into a shape of
-your own when you need it. `Push` and `Pull` have never completed against a real registry — see
+your own when you need it.
+
+> **Changed in v0.39.0.** `kit inspect --json` dropped the `manifest` wrapper and now reports the
+> kit spec v2 shape, flat, for v1 and v2 kits alike. `kit.Manifest` is gone and `info.Manifest.Name`
+> is now `info.Name`. Nothing was lost, but several fields moved — the full map is in `kit.Info`'s
+> doc comment. The ones that are not a straight rename:
+>
+> | was | is now |
+> |---|---|
+> | `Manifest.Template` | `Sandbox`, as `image` |
+> | `Manifest.Binary` | `Sandbox`, as `entrypoint` |
+> | `Manifest.RunOptions` | `Sandbox`, as `command.default` |
+> | `Manifest.InteractiveOptions` | `Sandbox`, as `command.interactive` |
+> | `Manifest.Resources` | `Sandbox`, as `resources` — and `memoryMB` is now a unit string like `"2048m"` |
+> | `Manifest.AIFilename` | `AgentInstructions`, as `filename` |
+> | `AgentContext` | `AgentInstructions`, as `content` |
+> | `Caps` | `Permissions` |
+> | `Commands` | `Setup` |
+> | `PublishedPorts` | `Ports` — a v2 spec cannot declare ports at all, but a v1 kit still reports them |
+>
+> A v1 kit otherwise reads the same, apart from `SchemaVersion` and a deprecation entry in
+> `Warnings` naming each legacy key. `Push` and `Pull` have never completed against a real registry — see
 [Known deviations](#known-deviations--limitations).
 
 ### 15. MCP servers
@@ -856,7 +949,7 @@ _ = mcp.AddRemote(ctx, c, "deepwiki", "https://mcp.deepwiki.com/mcp")
 // upstream documents this as ad-hoc development only.
 _ = mcp.AddLocal(ctx, c, "github", "npx", []string{"@modelcontextprotocol/server-github"})
 
-servers, _ := mcp.List(ctx, c)              // [{Name, Type: local|remote, Target}]
+servers, _ := mcp.List(ctx, c)              // [{Name, Type: local|remote, Transport, Status}]
 d, _ := mcp.Inspect(ctx, c, "deepwiki")     // d.URL, d.Transport, d.RequiresOAuth, d.Fields
 
 // Fix the set at creation…
@@ -957,11 +1050,11 @@ source. Invoke it with `/sbx-go-sdk`.
 ## Version alignment
 
 This SDK is **pinned to a tested `sbx` / `sandboxd` range**. It is currently built and
-live-verified against **`sbx` v0.38.0** with daemon REST **`api_version 0.26.0`**. Both values
+live-verified against **`sbx` v0.39.0** with daemon REST **`api_version 0.26.0`**. Both values
 are exported constants you can read at runtime:
 
 ```go
-client.ClientVersion    // "v0.38.0" — the sbx/daemon version the SDK was built against
+client.ClientVersion    // "v0.39.0" — the sbx/daemon version the SDK was built against
 client.TestedAPIVersion // "0.26.0"  — the daemon REST api_version its wire types were generated from
 ```
 
@@ -1012,7 +1105,7 @@ contract test is what tells maintainers a re-sync is due.
 
 ## Known deviations & limitations
 
-Verified live against `sandboxd` v0.38.0:
+Verified live against `sandboxd` v0.39.0:
 
 - **`CopyFrom` is REST and auto-starts the sandbox** — `GET /sandbox/{name}/files?path=…` works as
   of v0.37.0 (it was `404` through v0.35.0). `CopyFrom` starts a stopped sandbox first, matching
@@ -1038,11 +1131,23 @@ Verified live against `sandboxd` v0.38.0:
 - **`UnpublishPort` is REST** — it first sends `GET /sandbox/{name}/ports` to resolve which keys
   match the spec, then `POST /sandbox/{name}/ports/unpublish` (body: a bare `[]PortKey` array);
   works as of v0.37.0.
-- **`secret.SetCustom` is experimental** and exposes the value via the process list.
+- **`secret.SetCustom` is experimental** and exposes the value via the process list. A resolver
+  (`FromRef` / `FromCommand`) keeps the secret out of it, but `FromCommand`'s command text is
+  itself stored and displayed.
+- **Kit signing is only half-verified.** Key-based signing of a local directory round-trips live,
+  tampering included. Keyless signing needs an OIDC identity provider, and `kit sign`/`verify` on
+  an OCI reference — plus `kit.Provenance` entirely — need a registry, which this SDK has never
+  had reachable. A verification failure on the OCI path may therefore surface as a plain
+  `*client.CLIError` rather than `client.ErrSignatureInvalid`: an error either way, never a false
+  pass.
 - **`mcp.List` and `mcp.Inspect` parse CLI output** — neither subcommand has a `--json` flag
   upstream. `mcp.AuthStatus` and `mcp.AuthRemove` do get JSON (`--format json`). `sbx mcp auth
   <name>` (interactive browser OAuth) is not wrapped: register with `mcp.WithSkipAuth()`,
   authorize out of band, then confirm with `mcp.AuthStatus`.
+- **`mcp.List` no longer reports a server's URL or command** — v0.39.0 replaced the
+  NAME/TYPE/URL-COMMAND table with a listing grouped by gateway, which prints transport and
+  readiness instead of the endpoint. `mcp.Server` follows it: `Target` is gone, `Transport` and
+  `Status` take its place. Read the endpoint from `mcp.Inspect`, which still prints both.
 - **`sbx mcp rm` on an unregistered name exits 0** — so `mcp.Remove` cannot tell you whether it
   actually removed anything. Call `mcp.List` first if that distinction matters.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the

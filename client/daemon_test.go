@@ -116,6 +116,46 @@ func TestDiagnose_FailCountDrivesOK(t *testing.T) {
 	require.False(t, d.OK())
 }
 
+// `sbx diagnose -o json` exits 1 whenever a check fails, and still prints the
+// whole report. Reporting a broken host is the job, so the report must survive
+// the exit code — the shape a caller most needs is exactly the one the CLI
+// flags as an error.
+func TestDiagnose_FailingCheckStillReturnsTheReport(t *testing.T) {
+	const out = `{"version":"1.0","checks":[
+	  {"name":"Virtualization","status":"fail","message":"not accessible","detail":"/dev/kvm: permission denied","hint":"access to /dev/kvm is normally granted through group membership"}],
+	  "summary":{"pass":0,"warn":0,"fail":1,"skip":0}}`
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	script := "#!/bin/sh\ncat <<'EOF'\n" + out + "\nEOF\nexit 1\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	d, err := c.Diagnose(context.Background())
+	require.NoError(t, err, "a failing check is a result, not an error")
+	require.False(t, d.OK())
+	require.Equal(t, "/dev/kvm: permission denied", d.Checks[0].Detail)
+}
+
+// Without a report to return, the exit code is all there is, so it must not be
+// swallowed as a format error.
+func TestDiagnose_NonZeroExitWithoutJSONSurfacesTheExitError(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho 'ERROR: no such command' >&2\nexit 1\n"), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	_, err = c.Diagnose(context.Background())
+	require.Error(t, err)
+	var cliErr *CLIError
+	require.ErrorAs(t, err, &cliErr)
+	require.Equal(t, 1, cliErr.ExitCode)
+}
+
 // Captured verbatim from a v0.38.0 daemon on a host with no SaaS entitlement.
 func TestMCPGatewayMode(t *testing.T) {
 	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -267,4 +307,36 @@ func TestEnsureRunning_AlreadyHealthy(t *testing.T) {
 	os.WriteFile(bin, []byte("#!/bin/sh\nexit 1\n"), 0o755)
 	c, _ := New(context.Background(), WithSocketPath(sock), WithBinaryPath(bin))
 	require.NoError(t, c.EnsureRunning(context.Background()))
+}
+
+func TestDaemonLogPath(t *testing.T) {
+	const out = `{"status":"running","socket":"/run/sandboxd.sock","logs":"/var/log/sandboxd/daemon.log"}`
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + filepath.Join(dir, "args.txt") + "\ncat <<'EOF'\n" + out + "\nEOF\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	p, err := c.DaemonLogPath(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "/var/log/sandboxd/daemon.log", p)
+
+	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
+	require.Contains(t, string(args), "daemon status --json")
+}
+
+// A status payload without the logs key is a format change, not an empty path.
+func TestDaemonLogPath_MissingKeyIsUnexpectedFormat(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"status\":\"running\"}'\n"), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	_, err = c.DaemonLogPath(context.Background())
+	require.ErrorIs(t, err, ErrUnexpectedFormat)
 }

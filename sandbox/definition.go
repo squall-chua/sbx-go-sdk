@@ -19,6 +19,8 @@ type Definition struct {
 	publish       []string // -p specs, applied at create time
 	kits          []string // --kit refs, applied at create time
 	denyNetwork   []string // --deny-network hosts, applied at create time
+	env           []string // -e KEY=VALUE, or a bare KEY to inherit
+	envFile       []string // --env-file paths
 	staticMCP     []string // --static-mcp server names, fixed at create time
 	noShareSkills bool     // --no-share-skills, opt out of the shared skills store
 	agentArgs     []string
@@ -63,6 +65,12 @@ func (d *Definition) toCreateArgs() ([]string, error) {
 	}
 	for _, spec := range d.publish {
 		args = append(args, "-p", spec)
+	}
+	for _, f := range d.envFile {
+		args = append(args, "--env-file", f)
+	}
+	for _, kv := range d.env {
+		args = append(args, "-e", kv)
 	}
 	for _, ref := range d.kits {
 		args = append(args, "--kit", absLocal(ref))
@@ -111,6 +119,12 @@ func (d *Definition) toRunArgs() ([]string, error) {
 	}
 	for _, spec := range d.publish {
 		args = append(args, "-p", spec)
+	}
+	for _, f := range d.envFile {
+		args = append(args, "--env-file", f)
+	}
+	for _, kv := range d.env {
+		args = append(args, "-e", kv)
 	}
 	for _, ref := range d.kits {
 		args = append(args, "--kit", absLocal(ref))

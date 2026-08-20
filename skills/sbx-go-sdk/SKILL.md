@@ -60,6 +60,8 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Kit artifacts | `kit.Inspect/Validate/Pack/Push/Pull(ctx, c, ...)` (v0.34.0) — attach with `sandbox.WithKit` (v0.34.0) or `sb.AddKit`/`sb.Kits` (v0.35.0) |
 | MCP servers | `mcp.AddRemote/AddLocal/List/Inspect/Remove/Load(ctx, c, ...)` (v0.38.0) — fix a sandbox's set with `sandbox.WithStaticMCP`, or `mcp.Load` into a running one; `mcp.AuthStatus/AuthRemove` for hosted OAuth state; `c.MCPGatewayMode(ctx)` reports local vs hosted gateway |
 | Sandbox summary | `sb.Summary(ctx)` → auth mode, injected secrets, session count, MCP-gateway state (v0.38.0) — none of these are on `sb.Inspect`'s REST record |
+| Prune stopped sandboxes | `sandbox.Prune(ctx, c, sandbox.WithDryRun(), sandbox.WithStoppedLongerThan("24h"))` (v0.39.0) → the names removed, or with `WithDryRun` the names it would remove |
+| Kit signing | `kit.Sign/Verify/Provenance(ctx, c, ref, ...)` and `kit.WithSign` on `Push` (v0.39.0) — `WithKey`/`WithPublicKey` for key-based, `WithCertificateIdentity`+`WithCertificateOIDCIssuer` for keyless |
 | Install check / sign-in | `c.Diagnose(ctx)` (`*client.Diagnosis`, `.OK()`), `c.Login(ctx, user, token)` (stdin, no argv), `c.Logout(ctx)` (stops every running sandbox), `c.RestartDaemon(ctx)` |
 | Detect host config | `c.DetectSetup(ctx)` → `*client.SetupReport`, `.Section("SKILLS")` — read-only, never runs the wizard |
 | OAuth handshakes | `secret.SetOAuth(ctx, c, "openai", onURL)`, `mcp.Authorize(ctx, c, name, onURL)` — both hand you the consent URL and block; always pass a cancellable ctx |
@@ -68,9 +70,10 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
 `WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`,
 `WithPublish` (`-p`, v0.37.0), `WithKit` (`--kit`, v0.34.0), `WithDenyNetwork`, `WithStaticMCP`
-(both v0.38.0), `WithoutSharedSkills`. Remove option: `WithForce` (removes an active session).
+(both v0.38.0), `WithoutSharedSkills`, `WithEnv`/`WithEnvFile` (v0.39.0). Remove option:
+`WithForce` (removes an active session).
 
-## Gotchas (verified against sandboxd v0.38.0)
+## Gotchas (verified against sandboxd v0.39.0)
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
@@ -95,6 +98,28 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   do get `--format json`. `sbx mcp auth <name>` (interactive OAuth) is not wrapped — register with
   `mcp.WithSkipAuth()`, authorize out of band, confirm with `mcp.AuthStatus`. `mcp.Remove` on an
   unregistered name exits 0, so it cannot report whether anything was removed.
+- **`mcp.List` gives no URL or command** (changed in v0.39.0). A row is
+  `{Name, Type, Transport, Status}` — the listing itself stopped carrying the endpoint. Read it
+  from `mcp.Inspect`, which still prints `URL` for a remote server and `Command` for a local one.
+- **`kit.Info` is flat** (changed in v0.39.0). `kit.Manifest` is gone: use `info.Name`,
+  `info.Kind`, `info.SchemaVersion`. The policy blocks follow kit spec v2 — `Permissions` (was
+  `Caps`), `Setup` (was `Commands`), `AgentInstructions` (was `AgentContext`). A v1 kit reads the
+  same, plus a deprecation entry per legacy key in `Warnings`.
+- **`WithEnv` is the only way to set sandbox env vars at create time** (v0.39.0). A bare `KEY`
+  (no `=`) inherits the value from your own process. `exec.WithEnv` is a different thing: it sets
+  variables for one command, not for the sandbox.
+- **`sandbox.Prune` always passes `--force`.** Without it the CLI refuses on a non-interactive
+  stdin rather than prompting. That flag also removes a stopped sandbox that is still in use, so
+  run `WithDryRun` first if that matters.
+- **Branch on `client.ErrSignatureInvalid`, not on any error, after `kit.Verify`.** A misuse —
+  keyless with no accepted identity — stays a plain `*client.CLIError`, so "I asked wrongly" is
+  never confused with "this kit is untrustworthy".
+- **A secret resolver replaces the literal value, it does not accompany it.** `secret.FromRef` /
+  `FromCommand` with a non-empty value is refused before the CLI runs. `FromCommand`'s command
+  text is stored and shown by `secret ls`, so never embed a secret in it.
+- **`c.Diagnose` returns the report even when checks fail.** `sbx diagnose` exits non-zero on any
+  failure, so treating the exit code as an error would drop the diagnosis. Branch on `d.OK()` or
+  `d.Summary.Fail`, never on the error alone.
 - **`sb.Inspect` vs `sb.Summary`.** `Inspect` is the daemon's REST record. `Summary`
   (`sbx inspect --json`, shell-out) is the only source of `AuthMode`, `Secrets`, `Sessions` and
   `MCPGateway`. Check `Summary.Sessions` before reaching for `Remove(WithForce())`.

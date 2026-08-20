@@ -8,8 +8,8 @@
 # sbx v0.38.0 gave schemaVersion "2" a decoder of its own, so the v1 key names
 # no longer parse under it: caps -> permissions, commands -> setup,
 # commands.initFiles -> setup.files, agentContext -> agentInstructions.
-# `kit inspect --json` still reports the normalized v1 shape (caps, commands),
-# so kit.Info is unaffected.
+# sbx v0.39.0 then made `kit inspect --json` report that same v2 shape, flat
+# and with no manifest wrapper, so kit.Info mirrors the keys used here.
 schemaVersion: "2"
 kind: mixin
 name: fixture-kit

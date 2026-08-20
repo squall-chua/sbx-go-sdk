@@ -29,3 +29,13 @@ func TestSetup_AliasIsStillPassed(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(args), "setup ssh --alias work")
 }
+
+func TestRemoveSetup_UsesTheSubcommandNotAFlag(t *testing.T) {
+	c, argFile := newFakeSbx(t, 0, "", "")
+
+	require.NoError(t, RemoveSetup(context.Background(), c))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "setup ssh remove")
+}

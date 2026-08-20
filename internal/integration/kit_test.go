@@ -41,10 +41,10 @@ func TestSmoke_KitValidateInspectPack(t *testing.T) {
 
 	info, err := kit.Inspect(ctx, c, dir)
 	require.NoError(t, err)
-	require.Equal(t, "fixture-kit", info.Manifest.Name)
-	require.Equal(t, "mixin", info.Manifest.Kind)
-	require.Equal(t, "2", info.Manifest.SchemaVersion)
-	require.NotEmpty(t, info.Caps, "caps.network should survive as raw JSON")
+	require.Equal(t, "fixture-kit", info.Name)
+	require.Equal(t, "mixin", info.Kind)
+	require.Equal(t, "2", info.SchemaVersion)
+	require.NotEmpty(t, info.Permissions, "permissions.network should survive as raw JSON")
 
 	out := filepath.Join(t.TempDir(), "fixture-kit.zip")
 	require.NoError(t, kit.Pack(ctx, c, dir, out))

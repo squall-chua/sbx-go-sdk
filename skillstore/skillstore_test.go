@@ -43,3 +43,43 @@ func TestImport_DryRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(args), "--dry-run")
 }
+
+// printingClient prints stdout instead of staying silent, so List has
+// something to parse.
+func printingClient(t *testing.T, stdout string) *client.Client {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "sbx")
+	script := "#!/bin/sh\ncat <<'SBXOUT'\n" + stdout + "\nSBXOUT\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+	c, err := client.New(context.Background(), client.WithBinaryPath(bin))
+	require.NoError(t, err)
+	return c
+}
+
+// Captured verbatim from `sbx skills ls` at sbx v0.39.0.
+const lsOutput = `Skills store: /home/me/.local/state/sandboxes/sandboxes/agent-skills
+code-review
+diagnosing-bugs
+oldman`
+
+func TestList_SplitsThePathFromTheSkills(t *testing.T) {
+	st, err := List(context.Background(), printingClient(t, lsOutput))
+	require.NoError(t, err)
+	require.Equal(t, "/home/me/.local/state/sandboxes/sandboxes/agent-skills", st.Path)
+	require.Equal(t, []string{"code-review", "diagnosing-bugs", "oldman"}, st.Skills)
+}
+
+// The store directory exists whether or not anything was imported into it.
+func TestList_EmptyStoreStillReportsItsPath(t *testing.T) {
+	st, err := List(context.Background(), printingClient(t, "Skills store: /var/lib/skills"))
+	require.NoError(t, err)
+	require.Equal(t, "/var/lib/skills", st.Path)
+	require.Empty(t, st.Skills)
+}
+
+// Without the path line there is no way to tell a skill name from a stray
+// message, so the whole parse is refused rather than guessed at.
+func TestList_MissingPathLineIsUnexpectedFormat(t *testing.T) {
+	_, err := List(context.Background(), printingClient(t, "code-review\ndiagnosing-bugs"))
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
+}

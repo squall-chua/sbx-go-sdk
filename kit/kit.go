@@ -7,7 +7,7 @@
 // base image instead. Attach a kit at creation with sandbox.WithKit, or
 // afterwards with (*sandbox.Sandbox).AddKit.
 //
-// All five functions shell out to the sbx binary. The daemon exposes no kit
+// Every function here shells out to the sbx binary. The daemon exposes no kit
 // REST endpoints (ADR 0001).
 package kit
 
@@ -21,55 +21,75 @@ import (
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
 
-// Manifest is the identity block of a kit, as reported by
-// `sbx kit inspect --json`.
-//
-// Per ADR 0005 every field is present, strings and string slices are typed,
-// and struct-valued fields stay raw. Nine fields are only meaningful for
-// kind "sandbox" kits and are empty for a mixin.
-//
-// SchemaVersion "1" (legacy) kits decode the same way as "2": inspect --json's
-// output shape is identical, differing only in the SchemaVersion value itself.
-// Verified 2026-07-28 against sbx v0.37.0.
-type Manifest struct {
-	SchemaVersion string          `json:"schemaVersion"`
-	Kind          string          `json:"kind"` // "sandbox" or "mixin"
-	Name          string          `json:"name"`
-	Version       string          `json:"version"`
-	DisplayName   string          `json:"displayName,omitempty"`
-	Description   string          `json:"description,omitempty"`
-	SourceURL     string          `json:"sourceURL,omitempty"`
-	Binary        string          `json:"binary,omitempty"`
-	Template      string          `json:"template,omitempty"`
-	AIFilename    string          `json:"aiFilename,omitempty"`
-	RunOptions    []string        `json:"runOptions,omitempty"`
-	Resources     json.RawMessage `json:"resources,omitempty"`
-	Build         json.RawMessage `json:"build,omitempty"`
-	Security      json.RawMessage `json:"security,omitempty"`
-	Volumes       json.RawMessage `json:"volumes,omitempty"`
-}
-
 // Info is what `sbx kit inspect --json` reports about a kit.
 //
 // It is a report, not the kit: the files/ directory is packed into the
 // artifact by Pack but is not reported here.
 //
-// Struct-valued fields are left as raw JSON deliberately; see ADR 0005.
-// Unmarshal one into a shape of your own when you need it.
+// Per ADR 0005 every field is present, strings and string slices are typed,
+// and struct-valued fields stay raw. Unmarshal one into a shape of your own
+// when you need it.
+//
+// The shape follows the kit spec v2 document, flat and with no manifest
+// wrapper. A schemaVersion "1" kit is normalized up to it — the report reads
+// the same either way, apart from SchemaVersion itself and a deprecation
+// entry in Warnings naming each legacy key.
+//
+// Sandbox, and the Security block that pairs with it, are only meaningful for
+// kind "sandbox" kits and are empty for a mixin.
+//
+// Changed in sbx v0.39.0. Before it, inspect --json nested the identity fields
+// under "manifest" and reported the v1 key names, which is why the Manifest
+// type is gone. Nothing was lost, but several fields moved. Where a v0.38.0
+// field went:
+//
+//	Manifest.SchemaVersion, .Kind, .Name, .Version   → the top level here
+//	Manifest.DisplayName, .Description, .SourceURL   → the top level here
+//	Manifest.Template                                → Sandbox, as "image"
+//	Manifest.Binary                                  → Sandbox, as "entrypoint"
+//	Manifest.RunOptions                              → Sandbox, as "command.default"
+//	Manifest.InteractiveOptions                      → Sandbox, as "command.interactive"
+//	Manifest.Resources                               → Sandbox, as "resources"
+//	Manifest.Build                                   → Sandbox, as "build"
+//	Manifest.AIFilename                              → AgentInstructions, as "filename"
+//	Manifest.Security                                → Security
+//	Manifest.Volumes                                 → Volumes
+//	Caps                                             → Permissions
+//	Commands                                         → Setup
+//	AgentContext                                     → AgentInstructions, as "content"
+//	PublishedPorts                                   → Ports
+//
+// Resources changed shape as well as place: its memory is now a unit string
+// such as "2048m" where v1 reported a numeric "memoryMB".
 type Info struct {
-	Manifest       Manifest        `json:"manifest"`
-	Extends        string          `json:"extends,omitempty"`
-	Mixins         []string        `json:"mixins,omitempty"`
-	Locked         []string        `json:"locked,omitempty"`
-	Licenses       []string        `json:"licenses,omitempty"`
-	AgentContext   string          `json:"agentContext,omitempty"`
-	Warnings       []string        `json:"warnings,omitempty"`
-	Requires       json.RawMessage `json:"requires,omitempty"`
-	PublishedPorts json.RawMessage `json:"publishedPorts,omitempty"`
-	Caps           json.RawMessage `json:"caps,omitempty"`
-	Credentials    json.RawMessage `json:"credentials,omitempty"`
-	Environment    json.RawMessage `json:"environment,omitempty"`
-	Commands       json.RawMessage `json:"commands,omitempty"`
+	SchemaVersion string   `json:"schemaVersion"`
+	Kind          string   `json:"kind"` // "sandbox" or "mixin"
+	Name          string   `json:"name"`
+	Version       string   `json:"version"`
+	DisplayName   string   `json:"displayName,omitempty"`
+	Description   string   `json:"description,omitempty"`
+	SourceURL     string   `json:"sourceURL,omitempty"`
+	Extends       string   `json:"extends,omitempty"`
+	Mixins        []string `json:"mixins,omitempty"`
+	Locked        []string `json:"locked,omitempty"`
+	Licenses      []string `json:"licenses,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
+
+	Sandbox           json.RawMessage `json:"sandbox,omitempty"`
+	Security          json.RawMessage `json:"security,omitempty"`
+	Requires          json.RawMessage `json:"requires,omitempty"`
+	AgentInstructions json.RawMessage `json:"agentInstructions,omitempty"`
+	Permissions       json.RawMessage `json:"permissions,omitempty"`
+	Credentials       json.RawMessage `json:"credentials,omitempty"`
+	Environment       json.RawMessage `json:"environment,omitempty"`
+	Volumes           json.RawMessage `json:"volumes,omitempty"`
+	Setup             json.RawMessage `json:"setup,omitempty"`
+
+	// Ports is what a schemaVersion "1" kit declared as "publishedPorts". Kit
+	// spec v2 dropped the input key — a v2 spec declaring publishedPorts is
+	// rejected outright — but a v1 kit still reports its ports here, under the
+	// renamed output key.
+	Ports json.RawMessage `json:"ports,omitempty"`
 }
 
 // Inspect loads a kit and reports its contents (`sbx kit inspect --json`).
@@ -164,15 +184,54 @@ func Pack(ctx context.Context, c *client.Client, dir, out string) error {
 // on its own, and if it succeeds but leaves a grandchild on the pipe past
 // the delay, this call surfaces that as an error rather than success.
 //
+// Every push also attaches a SLSA provenance attestation as an OCI referrer.
+// Without WithSign that attestation is unsigned; read it back with Provenance.
+//
 // Unverified: this path has never completed against a real registry, because
 // no registry was reachable when it was written.
-func Push(ctx context.Context, c *client.Client, dir, ref string) error {
+func Push(ctx context.Context, c *client.Client, dir, ref string, opts ...PushOption) error {
+	var cfg pushConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	r, err := c.Runner()
 	if err != nil {
 		return err
 	}
-	_, err = r.Capture(ctx, nil, "kit", "push", dir, ref)
+	args := []string{"kit", "push", dir, ref}
+	args = append(args, cfg.args()...)
+	_, err = r.Capture(ctx, nil, args...)
 	return err
+}
+
+type pushConfig struct {
+	sign bool
+	signConfig
+}
+
+// PushOption configures Push.
+type PushOption func(*pushConfig)
+
+// WithSign signs the pushed kit and attaches the signature as an OCI referrer
+// (`--sign`), and signs the provenance attestation as a DSSE in-toto
+// attestation with the same identity or key.
+//
+// It takes the same options as Sign: WithKey for key-based signing, or nothing
+// for keyless. Unverified, like the rest of Push — no registry was reachable.
+func WithSign(opts ...SignOption) PushOption {
+	return func(c *pushConfig) {
+		c.sign = true
+		for _, o := range opts {
+			o(&c.signConfig)
+		}
+	}
+}
+
+func (c *pushConfig) args() []string {
+	if !c.sign {
+		return nil
+	}
+	return append([]string{"--sign"}, c.signConfig.args()...)
 }
 
 // Pull fetches a kit artifact from an OCI registry and writes its layer

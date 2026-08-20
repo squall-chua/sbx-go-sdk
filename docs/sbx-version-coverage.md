@@ -21,6 +21,7 @@ with a named spec) · **n/a** (needs no SDK surface).
 | v0.36.0 | never released |
 | v0.37.0 | `0.24.0` |
 | v0.38.0 | `0.26.0` |
+| v0.39.0 | `0.26.0` (unchanged) |
 
 | Feature | sbx | SDK | Status |
 |---|---|---|---|
@@ -77,19 +78,51 @@ with a named spec) · **n/a** (needs no SDK surface).
 | Registry credentials default to host-only scope | v0.38.0 | `secret.SetRegistry` + `WithHostOnly`, `secret.HostOnlyScope` | covered — global scope now emits `--all-sandboxes`, since a bare `secret set --registry` means host-only |
 | `settings list --all` exposes feature flags | v0.38.0 | `settings.ListAll` | covered — before this they were readable only one at a time via `Get` |
 | `requires_restart` / `feature_flag` on a setting | v0.38.0 | `settings.Setting` | covered |
-| Kit spec v2 (`permissions`, `setup`, `agentInstructions`) | v0.38.0 | `kit` package | n/a — authoring-side schema. `schemaVersion: "2"` now has its own decoder, so a v2 spec must use the new key names, but `kit inspect --json` still reports the normalized v1 shape and `kit.Info` is unchanged. The integration fixture was migrated |
+| Kit spec v2 (`permissions`, `setup`, `agentInstructions`) | v0.38.0 | `kit` package | n/a — authoring-side schema. `schemaVersion: "2"` now has its own decoder, so a v2 spec must use the new key names, but at v0.38.0 `kit inspect --json` still reported the normalized v1 shape and `kit.Info` was unchanged. The integration fixture was migrated. v0.39.0 flipped the output to the v2 shape too — see the v0.39.0 section |
 | `sbx cp` copy-out destination escape (CVE-2026-17106) | v0.38.0 | `internal/untar` | n/a — the SDK's `Sandbox.CopyFrom` extracts the REST tar itself through `os.Root` with explicit symlink and hardlink target checks, so it never had the CLI's escape. Upgrading sbx fixes the CLI path |
 | `sbx inspect` shows custom secrets | v0.38.0 | `Summary.Secrets` | covered — a sandbox-scoped custom secret lists as `{name, source:"custom"}`, verified live |
 | Structured create/run progress output | v0.38.0 | — | n/a — `sandbox.Create` owns the name and never parses create output |
 | `sbx diagnose -o json` / `--upload` | v0.38.0 | `Client.Diagnose` | partly covered — `-o json` is what `Diagnose` parses; `--upload` is deliberately not wrapped. Distinct from `Client.Diagnostics`, which is the daemon's own `/daemon/diagnostics` report |
 
+## v0.39.0
+
+The daemon REST API did not move: `api_version` stayed `0.26.0`, and the
+`sandboxapi.New<Op>Request` symbol set is identical to v0.38.0. Every change
+below is CLI-side, apart from one additive wire field.
+
+| Feature | sbx | SDK | Status |
+|---|---|---|---|
+| `kit inspect --json` reports the flat kit spec v2 shape | v0.39.0 | `kit.Info` | covered — **breaking**. The `manifest` wrapper is gone, so `kit.Manifest` was deleted and `info.Manifest.Name` became `info.Name`. **Nothing was lost; several fields moved**, and the full relocation map is in `kit.Info`'s doc comment. The non-obvious half: `Template` → `Sandbox.image`, `Binary` → `Sandbox.entrypoint`, `RunOptions` → `Sandbox.command.default`, `InteractiveOptions` → `Sandbox.command.interactive`, `AIFilename` → `AgentInstructions.filename`, `PublishedPorts` → `Ports`. `Resources.memoryMB` also changed shape, to a unit string like `"2048m"`. A v1 kit is normalized up to the same shape and gains a deprecation entry in `Warnings` per legacy key. The clean break was chosen over half-filling the old fields: a compile error tells a downstream consumer what happened, a silently empty `Caps` does not |
+| `mcp ls` is grouped by gateway, not a table | v0.39.0 | `mcp.List` | covered — **breaking**. The NAME/TYPE/URL-COMMAND header is gone, so the old `coltable` parse returned an empty slice and a nil error: a silent wrong answer, the worst failure mode available. `mcp.Server.Target` is dropped because the listing no longer carries the URL or command at all; `Transport` and `Status` replace it, and `mcp.Inspect` remains the way to read an endpoint. Still no `--json` or `--format` flag on `mcp ls` |
+| `diagnose -o json` exits non-zero when a check fails | v0.39.0 | `Client.Diagnose` | covered — the report is returned with a nil error however the CLI exited, since a failing check is the diagnosis, not a failure to diagnose. The exit code surfaces only when nothing decodes. Not strictly new upstream behaviour, but it never bit until this host had a genuinely failing check |
+| `SandboxInfo.stopped_at` | v0.39.0 | `api.SandboxInfo.StoppedAt` | covered — typed from DWARF and left `omitempty`. The daemon does not emit the key yet, verified against a stopped sandbox, so nothing reads it today. It is what `prune --filter since=DURATION` sorts on |
+| `SandboxCreateRequest.UsbDevices` | v0.39.0 | — | n/a — creation shells out and `sbx create` has no USB flag. Pairs with the new `feature.sandbox-usb` flag |
+| `sbx env` (`.sbxenv.yaml` declarative environments) | v0.39.0 | — | gap — `env create/run/exec/rm`. Deep-merges several files with docker-compose `-f` semantics, provisions sandbox-scoped secrets, and `env rm` removes what it created |
+| Kit signing: `kit sign` / `verify` / `provenance`, `push --sign` | v0.39.0 | `kit.Sign`, `Verify`, `Provenance`, `WithSign` | covered — a failed verification is `client.ErrSignatureInvalid`, following the `ErrKitRejected` pattern, while a misuse (keyless with no accepted identity) stays a plain `*CLIError` so the two can never be confused. Key-based signing of a local directory is verified live end to end, including that editing the spec afterwards invalidates the signature. Keyless needs an OIDC provider and the OCI paths need a registry, so both are shape-only — as is `Provenance`, which only exists on a pushed kit. Governed by `kit.requireSignature`, `kit.trustedSigners` and `kit.ignoreTransparencyLog`, already reachable through `settings.Set` |
+| `create` / `run --env` and `--env-file` | v0.39.0 | `sandbox.WithEnv`, `WithEnvFile` | covered — closes the long-standing "the CLI cannot pass `Environment`" entry below, which is why this is the highest-value row of the release. All three forms are verified live inside a real sandbox: `KEY=VALUE`, a bare `KEY` inherited from the calling process, and a file. Files are emitted before variables, matching the CLI's documented precedence |
+| `secret set` / `set-custom` external resolvers | v0.39.0 | `secret.FromRef`, `FromCommand`, `WithRefresh`, `WithoutVerify`, `WithResolverErrors` | covered — options rather than new functions, so `SetToken` and `SetCustom` keep their signatures (`SetCustom` gained a variadic tail). Exactly one value source is allowed: a literal, `FromRef`, or `FromCommand`; every other combination is refused before the CLI is invoked. `--command` is verified live; `--ref` is shape-only, since this host has neither the `op` binary nor AWS credentials. `-t/--token` is deliberately not wrapped — it puts the secret in the argument vector, which is exactly what `SetToken`'s stdin path exists to avoid |
+| `sbx prune` | v0.39.0 | `sandbox.Prune` | covered — returns the names removed, or with `WithDryRun` the names it would remove; `WithStoppedLongerThan` sets `--filter since=`. Always passes `--force`, because the CLI refuses outright on a non-interactive stdin rather than prompting — and that flag also removes a stopped sandbox still in use, which the doc comment calls out. A dry-run table missing its header is `ErrUnexpectedFormat`, never an empty list |
+| `skills ls` | v0.39.0 | `skillstore.List` | covered — reports the store path and its folder names. A missing path line is `ErrUnexpectedFormat`, not an empty store, because without it a skill name cannot be told from a stray message |
+| `setup ssh remove` | v0.39.0 | `ssh.RemoveSetup` | covered — undoes what `ssh.Setup` wrote for this app instance. Distinct from `ssh.Disable`, which turns off the `feature.ssh` setting |
+| `template save -o` | v0.39.0 | `sandbox.WithExport` | covered — the template is registered either way; `-o` only adds the tar export |
+| `daemon status --json` | v0.39.0 | `Client.DaemonLogPath` | covered — the log path is the only field `--json` adds that the SDK lacked. It is its own shell-out so that `DaemonStatus` stays pure REST and keeps working with no CLI binary |
+| `reset --preserve-secrets` | v0.39.0 | — | gap, deliberately unresolved. `POST /daemon/reset` takes no body — there is no `ResetRequest` type in DWARF — so the flag is CLI-side only, and `Client.Reset` is REST. Which of the two spellings preserves secrets cannot be settled without running a real reset, which wipes every sandbox and secret on the host. Settle it on a throwaway host, then decide whether `Reset` grows an option or gains a CLI sibling |
+| `secret import [SERVICE]` and `--all` | — | `secret.Import` / `ImportAll` | covered, and **not new in v0.39.0** — the v0.37.0 recon simply never recorded the positional or the flag. The SDK has emitted both since that sync. Listed here only to retract the claim |
+| `sbx ssh` hidden from the root help | v0.39.0 | `ssh` package | n/a — cobra visibility only. `sbx ssh setup` and `sbx setup ssh` both still work, so `ssh.Setup` is unaffected |
+| Feature flags: 9 → 23 | v0.39.0 | `settings.ListAll` | covered — generic. New are `feature.sandbox-usb`, `feature.network-user-prompts`, `update.channel`, and the `feature.sbx-api` family (`sbx-api` plus ten `sbx-api-*` sub-flags). That family looks like a gated public REST API and is worth probing next sync: if it exposes creation over REST, `sandbox.Create` could stop shelling out |
+| Non-flag settings: 18 → 23 | v0.39.0 | `settings.Set` / `Get` | covered — generic. New are `claude.remoteControl`, `kit.ignoreTransparencyLog`, `kit.requireSignature`, `kit.trustedSigners`, `platform.images.registryMirror` |
+
 ## Create-request fields the daemon accepts but the CLI cannot pass
 
-`SandboxCreateRequest` carries `Environment`, `SecretsScope`, `PullPolicy`,
+`SandboxCreateRequest` carries `SecretsScope`, `PullPolicy`,
 `RootFilesystemSize`, `DindVolumeSize`, `EnableVirtiofsCache`, `Display`,
-`AgentOptions`, `BindingsPath` and `CredentialValues`. Sandbox creation shells
-out to `sbx create`, which exposes none of them, so they are unreachable until
-creation moves to REST. Recorded here so the list is not rediscovered each sync.
+`AgentOptions`, `BindingsPath`, `CredentialValues` and `UsbDevices`. Sandbox
+creation shells out to `sbx create`, which exposes none of them, so they are
+unreachable until creation moves to REST. Recorded here so the list is not
+rediscovered each sync.
+
+`Environment` left this list in v0.39.0: `create` and `run` gained `--env` and
+`--env-file`. The SDK does not emit them yet — see the gap row above.
 
 ## Verifying downstream source compatibility
 
@@ -115,3 +148,46 @@ Every other v0.38.0 change is additive.
 
 Note the go.work file needs a full `go` version (`go 1.25.0`, not `go 1.25`),
 or the build fails before it compiles anything.
+
+**The v0.39.0 sync ran this check and it failed, as designed.** The `kit.Info`
+break is intentional this time, not an accident like `policy.Profiles` was, but
+the check is still what turned "downstream might be affected" into an exact
+list. One file, one function, five lines:
+`sbx-swarm-node/internal/sandbox/sdkbackend.go`'s `inspectKit`, which read
+`Kind`, `Resources`, `RunOptions`, `Template` and `Volumes` off `info.Manifest`.
+
+The fix is mechanical — every fact it needs is still reported, three of them
+now inside the `sandbox` block — and was verified to build, vet and pass that
+package's tests against this branch through the same go.work:
+
+```go
+var sb struct {
+    Image     string          `json:"image"`
+    Resources json.RawMessage `json:"resources"`
+    Command   struct {
+        Default []string `json:"default"`
+    } `json:"command"`
+}
+if len(info.Sandbox) > 0 {
+    if err := json.Unmarshal(info.Sandbox, &sb); err != nil {
+        return KitInfo{}, fmt.Errorf("kit %q: decoding sandbox block: %w", ref, err)
+    }
+}
+return KitInfo{
+    Kind:          info.Kind,
+    HasResources:  hasResources(sb.Resources),
+    HasRunOptions: len(sb.Command.Default) > 0,
+    HasTemplate:   sb.Image != "",
+    HasVolumes:    hasVolumes(info.Volumes),
+}, nil
+```
+
+That patch lives in the downstream repo and is **not** applied there yet. Land
+it before or alongside the release that carries this `kit.Info`.
+
+**The check also caught a bug in this repo**, which is the stronger argument for
+running it. Reading real downstream code is what surfaced that `Info` had no
+field for a v1 kit's `publishedPorts` — the CLI renames them to `ports` on
+output, so they were being decoded into nothing and silently dropped. No test
+here covered a v1 kit with ports, because the fixture is a v2 mixin. Probe a
+kind `sandbox` kit and a v1 kit next sync, not just the fixture.

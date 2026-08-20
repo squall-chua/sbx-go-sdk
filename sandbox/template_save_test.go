@@ -17,3 +17,14 @@ func TestSaveTemplate(t *testing.T) {
 	data, _ := os.ReadFile(argFile)
 	require.Contains(t, string(data), "template save s1 myimg:v1")
 }
+
+func TestSaveTemplate_WithExport(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := clientWithRecordingSbx(t, argFile)
+	sb := NewForTest(c, "s1")
+
+	require.NoError(t, sb.SaveTemplate(context.Background(), "myimg:v1", WithExport("/tmp/img.tar")))
+
+	data, _ := os.ReadFile(argFile)
+	require.Contains(t, string(data), "template save s1 myimg:v1 --output /tmp/img.tar")
+}

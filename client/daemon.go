@@ -38,7 +38,7 @@ type versionResponse struct {
 }
 
 // ClientVersion is the sbx/daemon version this SDK was built/tested against.
-const ClientVersion = "v0.38.0"
+const ClientVersion = "v0.39.0"
 
 // TestedAPIVersion is the daemon REST api_version this SDK's wire types were
 // generated from and validated against (see DaemonHealthResponse.APIVersion). The
@@ -292,17 +292,23 @@ func (d *Diagnosis) OK() bool { return d.Summary.Fail == 0 }
 // `sbx diagnose --upload` sends the report to Docker support. It is deliberately
 // not wrapped — shipping host diagnostics to a third party should be an explicit
 // act, not a side effect of a library call.
+//
+// A failing check is a result, not an error: the CLI exits non-zero whenever
+// any check fails, and still prints the whole report. So a report that decodes
+// is returned with a nil error however the CLI exited, and the caller reads OK
+// or Summary.Fail to find out. The exit code only surfaces when there is no
+// report to return — a missing binary, or output that is not the JSON report.
 func (c *Client) Diagnose(ctx context.Context) (*Diagnosis, error) {
 	r, err := c.runnerOrErr()
 	if err != nil {
 		return nil, err
 	}
-	out, err := r.Capture(ctx, nil, "diagnose", "-o", "json")
-	if err != nil {
-		return nil, err
-	}
+	out, runErr := r.Capture(ctx, nil, "diagnose", "-o", "json")
 	var d Diagnosis
 	if err := json.Unmarshal([]byte(out), &d); err != nil {
+		if runErr != nil {
+			return nil, runErr
+		}
 		return nil, fmt.Errorf("diagnose: %w: %w", ErrUnexpectedFormat, err)
 	}
 	return &d, nil
@@ -314,8 +320,37 @@ type Status struct {
 	Socket  string
 }
 
+// DaemonLogPath returns the daemon's log file path (`sbx daemon status --json`,
+// whose --json flag arrived in sbx v0.39.0).
+//
+// This is a shell-out and deliberately separate from DaemonStatus, which stays
+// pure REST: the log path is the only field --json adds, and making the status
+// probe depend on the CLI binary would be a poor trade for one string.
+func (c *Client) DaemonLogPath(ctx context.Context) (string, error) {
+	r, err := c.runnerOrErr()
+	if err != nil {
+		return "", err
+	}
+	out, err := r.Capture(ctx, nil, "daemon", "status", "--json")
+	if err != nil {
+		return "", err
+	}
+	var st struct {
+		Logs string `json:"logs"`
+	}
+	if err := json.Unmarshal([]byte(out), &st); err != nil {
+		return "", fmt.Errorf("daemon status --json: %w: %w", ErrUnexpectedFormat, err)
+	}
+	if st.Logs == "" {
+		return "", fmt.Errorf("daemon status --json: %w: no logs path in output", ErrUnexpectedFormat)
+	}
+	return st.Logs, nil
+}
+
 // DaemonStatus probes the socket via Health and reports running + path. A down
 // daemon yields Running=false with a nil error (so callers can branch).
+//
+// It reports no log path: that comes from DaemonLogPath, which shells out.
 func (c *Client) DaemonStatus(ctx context.Context) (Status, error) {
 	st := Status{Socket: c.tr.Socket()}
 	if _, err := c.Health(ctx); err == nil {
