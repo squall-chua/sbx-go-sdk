@@ -915,11 +915,25 @@ Struct-valued fields on `kit.Info` stay as `json.RawMessage`
 your own when you need it.
 
 > **Changed in v0.39.0.** `kit inspect --json` dropped the `manifest` wrapper and now reports the
-> kit spec v2 shape, flat, for v1 and v2 kits alike. `kit.Manifest` is gone and its fields moved
-> to the top level of `kit.Info`: `info.Manifest.Name` is now `info.Name`. `Caps` is now
-> `Permissions`, `Commands` is now `Setup`, `AgentContext` is now the `AgentInstructions` block,
-> and `PublishedPorts` is gone with no v2 equivalent. A v1 kit still reads the same, apart from
-> `SchemaVersion` and a deprecation entry in `Warnings` naming each legacy key. `Push` and `Pull` have never completed against a real registry — see
+> kit spec v2 shape, flat, for v1 and v2 kits alike. `kit.Manifest` is gone and `info.Manifest.Name`
+> is now `info.Name`. Nothing was lost, but several fields moved — the full map is in `kit.Info`'s
+> doc comment. The ones that are not a straight rename:
+>
+> | was | is now |
+> |---|---|
+> | `Manifest.Template` | `Sandbox`, as `image` |
+> | `Manifest.Binary` | `Sandbox`, as `entrypoint` |
+> | `Manifest.RunOptions` | `Sandbox`, as `command.default` |
+> | `Manifest.InteractiveOptions` | `Sandbox`, as `command.interactive` |
+> | `Manifest.Resources` | `Sandbox`, as `resources` — and `memoryMB` is now a unit string like `"2048m"` |
+> | `Manifest.AIFilename` | `AgentInstructions`, as `filename` |
+> | `AgentContext` | `AgentInstructions`, as `content` |
+> | `Caps` | `Permissions` |
+> | `Commands` | `Setup` |
+> | `PublishedPorts` | `Ports` — a v2 spec cannot declare ports at all, but a v1 kit still reports them |
+>
+> A v1 kit otherwise reads the same, apart from `SchemaVersion` and a deprecation entry in
+> `Warnings` naming each legacy key. `Push` and `Pull` have never completed against a real registry — see
 [Known deviations](#known-deviations--limitations).
 
 ### 15. MCP servers

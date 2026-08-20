@@ -38,11 +38,29 @@ import (
 // Sandbox, and the Security block that pairs with it, are only meaningful for
 // kind "sandbox" kits and are empty for a mixin.
 //
-// Changed in sbx v0.39.0. Before it, inspect --json nested the identity
-// fields under "manifest" and reported the v1 key names ("caps",
-// "commands", "agentContext"), which is why the Manifest type and the Caps,
-// Commands, AgentContext and PublishedPorts fields are gone. There is no v2
-// equivalent for publishedPorts at all.
+// Changed in sbx v0.39.0. Before it, inspect --json nested the identity fields
+// under "manifest" and reported the v1 key names, which is why the Manifest
+// type is gone. Nothing was lost, but several fields moved. Where a v0.38.0
+// field went:
+//
+//	Manifest.SchemaVersion, .Kind, .Name, .Version   → the top level here
+//	Manifest.DisplayName, .Description, .SourceURL   → the top level here
+//	Manifest.Template                                → Sandbox, as "image"
+//	Manifest.Binary                                  → Sandbox, as "entrypoint"
+//	Manifest.RunOptions                              → Sandbox, as "command.default"
+//	Manifest.InteractiveOptions                      → Sandbox, as "command.interactive"
+//	Manifest.Resources                               → Sandbox, as "resources"
+//	Manifest.Build                                   → Sandbox, as "build"
+//	Manifest.AIFilename                              → AgentInstructions, as "filename"
+//	Manifest.Security                                → Security
+//	Manifest.Volumes                                 → Volumes
+//	Caps                                             → Permissions
+//	Commands                                         → Setup
+//	AgentContext                                     → AgentInstructions, as "content"
+//	PublishedPorts                                   → Ports
+//
+// Resources changed shape as well as place: its memory is now a unit string
+// such as "2048m" where v1 reported a numeric "memoryMB".
 type Info struct {
 	SchemaVersion string   `json:"schemaVersion"`
 	Kind          string   `json:"kind"` // "sandbox" or "mixin"
@@ -66,6 +84,12 @@ type Info struct {
 	Environment       json.RawMessage `json:"environment,omitempty"`
 	Volumes           json.RawMessage `json:"volumes,omitempty"`
 	Setup             json.RawMessage `json:"setup,omitempty"`
+
+	// Ports is what a schemaVersion "1" kit declared as "publishedPorts". Kit
+	// spec v2 dropped the input key — a v2 spec declaring publishedPorts is
+	// rejected outright — but a v1 kit still reports its ports here, under the
+	// renamed output key.
+	Ports json.RawMessage `json:"ports,omitempty"`
 }
 
 // Inspect loads a kit and reports its contents (`sbx kit inspect --json`).

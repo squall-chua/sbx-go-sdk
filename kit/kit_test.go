@@ -2,6 +2,7 @@ package kit
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -167,4 +168,60 @@ func TestPack_NonZeroExitIsAnError(t *testing.T) {
 	err := Pack(context.Background(), c, "./mykit", "/tmp/out.zip")
 	require.Error(t, err)
 	require.NotErrorIs(t, err, client.ErrKitRejected)
+}
+
+// A schemaVersion "1" kit's publishedPorts are reported under the renamed
+// "ports" key. Captured from `sbx kit inspect --json` at sbx v0.39.0 — an
+// earlier draft of Info had no field for them and dropped them silently.
+func TestInspect_V1PublishedPortsSurviveAsPorts(t *testing.T) {
+	const v1JSON = `{
+	  "schemaVersion": "1",
+	  "kind": "mixin",
+	  "name": "v1-ports",
+	  "version": "0.1.0",
+	  "volumes": [{"path": "/data", "type": "tmpfs"}],
+	  "ports": [{"container": 8080, "protocol": "tcp", "name": "web"}]
+	}`
+	c := fakeClient(t, "", v1JSON, "", 0)
+
+	info, err := Inspect(context.Background(), c, "./v1kit")
+	require.NoError(t, err)
+	require.Equal(t, "1", info.SchemaVersion)
+	require.JSONEq(t, `[{"container":8080,"protocol":"tcp","name":"web"}]`, string(info.Ports))
+	require.JSONEq(t, `[{"path":"/data","type":"tmpfs"}]`, string(info.Volumes))
+}
+
+// A kind "sandbox" kit reports image, entrypoint, command and resources inside
+// the sandbox block — the v1 Manifest fields that moved rather than vanished.
+func TestInspect_SandboxBlockCarriesTheRelocatedManifestFields(t *testing.T) {
+	const sandboxJSON = `{
+	  "schemaVersion": "1",
+	  "kind": "sandbox",
+	  "name": "v1-full",
+	  "version": "0.1.0",
+	  "sandbox": {
+	    "image": "alpine:3.20",
+	    "entrypoint": ["/usr/bin/agent"],
+	    "command": {"default": ["--foo", "--bar"]},
+	    "resources": {"cpu": 2, "memory": "2048m"}
+	  },
+	  "agentInstructions": {"filename": "AGENTS.md"}
+	}`
+	c := fakeClient(t, "", sandboxJSON, "", 0)
+
+	info, err := Inspect(context.Background(), c, "./v1kit")
+	require.NoError(t, err)
+
+	var sb struct {
+		Image      string   `json:"image"`
+		Entrypoint []string `json:"entrypoint"`
+		Command    struct {
+			Default []string `json:"default"`
+		} `json:"command"`
+	}
+	require.NoError(t, json.Unmarshal(info.Sandbox, &sb))
+	require.Equal(t, "alpine:3.20", sb.Image, "was Manifest.Template")
+	require.Equal(t, []string{"/usr/bin/agent"}, sb.Entrypoint, "was Manifest.Binary")
+	require.Equal(t, []string{"--foo", "--bar"}, sb.Command.Default, "was Manifest.RunOptions")
+	require.Contains(t, string(info.AgentInstructions), "AGENTS.md", "was Manifest.AIFilename")
 }

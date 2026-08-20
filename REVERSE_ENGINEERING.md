@@ -34,7 +34,14 @@ Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.5 binary, with DWARF)
 > **`kit inspect --json` flattened onto the kit spec v2 document**: no `manifest` wrapper, and
 > `caps`/`commands`/`agentContext` are now `permissions`/`setup`/`agentInstructions` on output
 > too, for v1 and v2 kits alike (a v1 kit gains a deprecation entry in `warnings` per legacy key).
-> `publishedPorts` is gone with no v2 equivalent. **`sbx mcp ls` stopped being a table** — it is
+> Nothing is lost, but a lot moves, and the moves are not guessable from the rename list alone:
+> the v1 `sandbox:` block's `entrypoint.run` / `.args` / `.ttyArgs` surface as
+> `sandbox.entrypoint` / `sandbox.command.default` / `sandbox.command.interactive`,
+> `sandbox.aiFilename` surfaces as `agentInstructions.filename`, `resources.memoryMB` becomes a
+> unit string (`"2048m"`), and top-level `publishedPorts` is renamed to `ports` on output — while
+> the v2 *decoder* rejects `publishedPorts` as an input key outright, so a v2 kit cannot declare
+> ports at all. Probe a kind `sandbox` kit as well as a mixin, and probe both schema versions:
+> a mixin alone shows none of this. **`sbx mcp ls` stopped being a table** — it is
 > now grouped by gateway with a free-form header and footer, prints transport and readiness, and
 > no longer carries the URL or command at all. There is still no `--json`, so a header-anchored
 > parse fails *silently*: `coltable` reported `ErrNoHeader`, which the SDK read as "no servers".
@@ -561,7 +568,10 @@ of kind `mixin` and kind `sandbox`.
 Two shapes only the `sandbox` kind emits: a `sandbox` block (`image`, `build`, `entrypoint`,
 `command` — expanded on output into `{default, interactive}` — and `resources`, whose `memory`
 is normalized to a unit string such as `"2048m"`), and the `security` block (`privileged`).
-`publishedPorts` and `volumes` parse under v1 but are rejected by the v2 decoder.
+
+`volumes` parses under both schema versions. `publishedPorts` parses only under v1, and is
+emitted as `ports` — the input key and the output key differ, which is easy to miss because a
+v2 kit cannot produce the field at all to compare against.
 
 **Method note: DWARF carries no Go struct tags at all** — confirmed empirically (a throwaway
 binary's member DIEs expose `Name`, `Type`, `DataMemberLoc`, and one Go-vendor boolean, nothing
