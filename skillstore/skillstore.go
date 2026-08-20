@@ -13,6 +13,8 @@ package skillstore
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
@@ -50,4 +52,50 @@ func Import(ctx context.Context, c *client.Client, opts ...ImportOption) error {
 	}
 	_, err = r.Capture(ctx, nil, args...)
 	return err
+}
+
+// Store is what `sbx skills ls` reports: where the shared store lives on the
+// host, and the skill folders currently in it.
+type Store struct {
+	// Path is the store directory the daemon manages and mounts into
+	// sandboxes.
+	Path string
+	// Skills are the folder names in it, in the order the CLI lists them.
+	Skills []string
+}
+
+const storePathPrefix = "Skills store: "
+
+// List reports the shared store's path and contents (`sbx skills ls`, added in
+// sbx v0.39.0).
+//
+// An empty store is not an error: Skills comes back empty and Path is still
+// reported, since the directory exists whether or not anything has been
+// imported into it.
+func List(ctx context.Context, c *client.Client) (Store, error) {
+	r, err := c.Runner()
+	if err != nil {
+		return Store{}, err
+	}
+	out, err := r.Capture(ctx, nil, "skills", "ls")
+	if err != nil {
+		return Store{}, err
+	}
+
+	var st Store
+	for _, ln := range strings.Split(out, "\n") {
+		ln = strings.TrimSpace(ln)
+		switch {
+		case ln == "":
+		case strings.HasPrefix(ln, storePathPrefix):
+			st.Path = strings.TrimSpace(strings.TrimPrefix(ln, storePathPrefix))
+		default:
+			st.Skills = append(st.Skills, ln)
+		}
+	}
+	if st.Path == "" {
+		return Store{}, fmt.Errorf("skills ls: %w: no %q line in output",
+			client.ErrUnexpectedFormat, strings.TrimSpace(storePathPrefix))
+	}
+	return st, nil
 }

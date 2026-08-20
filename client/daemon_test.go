@@ -308,3 +308,35 @@ func TestEnsureRunning_AlreadyHealthy(t *testing.T) {
 	c, _ := New(context.Background(), WithSocketPath(sock), WithBinaryPath(bin))
 	require.NoError(t, c.EnsureRunning(context.Background()))
 }
+
+func TestDaemonLogPath(t *testing.T) {
+	const out = `{"status":"running","socket":"/run/sandboxd.sock","logs":"/var/log/sandboxd/daemon.log"}`
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + filepath.Join(dir, "args.txt") + "\ncat <<'EOF'\n" + out + "\nEOF\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	p, err := c.DaemonLogPath(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "/var/log/sandboxd/daemon.log", p)
+
+	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
+	require.Contains(t, string(args), "daemon status --json")
+}
+
+// A status payload without the logs key is a format change, not an empty path.
+func TestDaemonLogPath_MissingKeyIsUnexpectedFormat(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"status\":\"running\"}'\n"), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	_, err = c.DaemonLogPath(context.Background())
+	require.ErrorIs(t, err, ErrUnexpectedFormat)
+}

@@ -320,8 +320,37 @@ type Status struct {
 	Socket  string
 }
 
+// DaemonLogPath returns the daemon's log file path (`sbx daemon status --json`,
+// whose --json flag arrived in sbx v0.39.0).
+//
+// This is a shell-out and deliberately separate from DaemonStatus, which stays
+// pure REST: the log path is the only field --json adds, and making the status
+// probe depend on the CLI binary would be a poor trade for one string.
+func (c *Client) DaemonLogPath(ctx context.Context) (string, error) {
+	r, err := c.runnerOrErr()
+	if err != nil {
+		return "", err
+	}
+	out, err := r.Capture(ctx, nil, "daemon", "status", "--json")
+	if err != nil {
+		return "", err
+	}
+	var st struct {
+		Logs string `json:"logs"`
+	}
+	if err := json.Unmarshal([]byte(out), &st); err != nil {
+		return "", fmt.Errorf("daemon status --json: %w: %w", ErrUnexpectedFormat, err)
+	}
+	if st.Logs == "" {
+		return "", fmt.Errorf("daemon status --json: %w: no logs path in output", ErrUnexpectedFormat)
+	}
+	return st.Logs, nil
+}
+
 // DaemonStatus probes the socket via Health and reports running + path. A down
 // daemon yields Running=false with a nil error (so callers can branch).
+//
+// It reports no log path: that comes from DaemonLogPath, which shells out.
 func (c *Client) DaemonStatus(ctx context.Context) (Status, error) {
 	st := Status{Socket: c.tr.Socket()}
 	if _, err := c.Health(ctx); err == nil {

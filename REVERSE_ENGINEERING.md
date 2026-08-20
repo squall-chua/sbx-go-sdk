@@ -180,7 +180,9 @@ sbx secret COMMAND                            # manage stored secrets
         [--no-verify] [--show-error] [-t/--token V] [-f/--force]     # all NEW in v0.39.0
         | set [--all-sandboxes|--sandbox S] --registry HOST --password-stdin [--username U]
         | set-custom [--sandbox S] --host H... --env E --value V [--placeholder P]
-    secret import [SERVICE] [--all] [--dry-run] [-f]   # NEW in v0.35.0; [SERVICE]/--all NEW in v0.39.0
+    secret import [SERVICE] [--all] [--dry-run] [-f]   # NEW in v0.35.0
+    (the positional SERVICE and --all are not new in v0.39.0 — the v0.37.0
+     recon just never recorded them. The SDK has emitted both since then.)
     (v0.38.0 reshaped scope: global is the default for service and custom secrets,
      `-g` and a bare positional SANDBOX are deprecated-but-working and print a warning,
      and a registry credential's default is a third scope, "(host only)" — host-side

@@ -12,6 +12,7 @@ import (
 	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/squall-chua/sbx-go-sdk/exec"
 	"github.com/squall-chua/sbx-go-sdk/sandbox"
+	"github.com/squall-chua/sbx-go-sdk/skillstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,4 +94,30 @@ func TestSmoke_Prune(t *testing.T) {
 	}
 	require.NotContains(t, names, stopped.Name())
 	require.Contains(t, names, running.Name())
+}
+
+// skills ls and daemon status --json both read real host state, so this only
+// checks the SDK reads them the way the CLI writes them.
+func TestSmoke_SkillsListAndDaemonLogPath(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.New(ctx, client.WithAutoStart())
+	require.NoError(t, err)
+
+	store, err := skillstore.List(ctx, c)
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(store.Path), "the store path is absolute: %q", store.Path)
+	for _, name := range store.Skills {
+		require.NotEmpty(t, name)
+		require.NotContains(t, name, " ", "a skill is one folder name per line")
+	}
+
+	logs, err := c.DaemonLogPath(ctx)
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(logs), "the log path is absolute: %q", logs)
+
+	st, err := c.DaemonStatus(ctx)
+	require.NoError(t, err)
+	require.True(t, st.Running)
+	require.Equal(t, filepath.Dir(st.Socket), filepath.Dir(logs),
+		"the daemon keeps its socket and its log in one state directory")
 }

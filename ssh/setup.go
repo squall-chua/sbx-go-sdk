@@ -41,3 +41,21 @@ func Setup(ctx context.Context, c *client.Client, opts ...Option) error {
 	_, err = r.Capture(ctx, nil, args...)
 	return err
 }
+
+// RemoveSetup undoes what Setup wrote (`sbx setup ssh remove`, added in sbx
+// v0.39.0): it drops this app instance's generated SSH config and the include
+// line pointing at it from ~/.ssh/config.
+//
+// It removes the local app instance's own config only, so a differently-named
+// instance's block survives. Idempotent, like Setup.
+//
+// This is client-side provisioning, not the endpoint itself: it does not
+// disable the feature.ssh setting, which is what Disable does.
+func RemoveSetup(ctx context.Context, c *client.Client) error {
+	r, err := c.Runner()
+	if err != nil {
+		return err
+	}
+	_, err = r.Capture(ctx, nil, "setup", "ssh", "remove")
+	return err
+}
