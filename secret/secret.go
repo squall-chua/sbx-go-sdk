@@ -18,7 +18,7 @@ type CustomSecret struct {
 	Host        string   // target host whose outbound requests get the real secret (exact, IP, or wildcard e.g. "*.example.com")
 	Hosts       []string // additional target hosts covered by the same secret (repeatable --host, sbx v0.33.0)
 	Env         string   // env var set (to the placeholder) inside the sandbox
-	Value       string   // the real secret
+	Value       string   // the real secret; leave empty when a resolver option supplies it
 	Placeholder string   // optional; supports a {rand} suffix
 }
 
@@ -38,14 +38,24 @@ func scopeArgs(scope string) []string {
 
 // SetCustom creates/updates a custom secret in scope ("" = global). EXPERIMENTAL.
 // The Value is passed as a `sbx secret set-custom --value` CLI argument, so it is
-// briefly visible in host process listings.
+// briefly visible in host process listings. Pass FromRef or FromCommand
+// instead of a Value to have the daemon resolve it on demand, which keeps the
+// secret itself out of both the argument vector and the store.
 //
 // Unlike SetToken, SetRegistry and Import, SetCustom has no pre-flight
 // existing-entry check and pipes nothing to stdin. If `set-custom` prompts to
 // overwrite an existing entry, it may hit the same silent-cancel-exit-0 shape
 // those three were fixed for (see README's "Known deviations & limitations")
 // — not verified either way; fixing it is out of scope here.
-func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecret) error {
+func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecret, opts ...SetOption) error {
+	var cfg setConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	if err := cfg.validateSource("secret set-custom", s.Value); err != nil {
+		return err
+	}
+
 	args := append([]string{"secret", "set-custom"}, scopeArgs(scope)...)
 	if s.Host != "" {
 		args = append(args, "--host", s.Host)
@@ -53,7 +63,12 @@ func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecr
 	for _, h := range s.Hosts {
 		args = append(args, "--host", h)
 	}
-	args = append(args, "--env", s.Env, "--value", s.Value)
+	args = append(args, "--env", s.Env)
+	if resolver, resolved := cfg.resolverArgs(); resolved {
+		args = append(args, resolver...)
+	} else {
+		args = append(args, "--value", s.Value)
+	}
 	if s.Placeholder != "" {
 		args = append(args, "--placeholder", s.Placeholder)
 	}
@@ -87,7 +102,11 @@ type Custom struct {
 	Targets     string // target host(s); comma-joined when one secret covers several (sbx v0.33.0)
 	Env         string // env var injected into the sandbox
 	Placeholder string
-	ValueMasked string // masked display value
+	// ValueMasked is what the SECRET column shows. For a stored literal that
+	// is a mask ("*****"); for a resolver it is the source and its refresh
+	// policy instead, e.g. "command:vault read -field=k s/ai (30m)". Never the
+	// real secret either way.
+	ValueMasked string
 }
 
 // Secrets is the parsed `sbx secret ls` output: the standard table (service +

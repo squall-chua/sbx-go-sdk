@@ -3,13 +3,57 @@ package secret
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/squall-chua/sbx-go-sdk/internal/oauthflow"
 )
 
-type setConfig struct{ overwrite, hostOnly bool }
+type setConfig struct {
+	overwrite, hostOnly bool
+	ref, command        string
+	refresh             string
+	noVerify, showError bool
+}
+
+// resolverArgs returns the flags that make the daemon fetch the value on
+// demand, and reports whether a resolver was configured at all.
+func (c *setConfig) resolverArgs() ([]string, bool) {
+	var args []string
+	switch {
+	case c.ref != "":
+		args = append(args, "--ref", c.ref)
+	case c.command != "":
+		args = append(args, "--command", c.command)
+	default:
+		return nil, false
+	}
+	if c.refresh != "" {
+		args = append(args, "--refresh", c.refresh)
+	}
+	if c.noVerify {
+		args = append(args, "--no-verify")
+	}
+	if c.showError {
+		args = append(args, "--show-error")
+	}
+	return args, true
+}
+
+// validateSource rejects a call that names no value source, or two.
+func (c *setConfig) validateSource(op, literal string) error {
+	if c.ref != "" && c.command != "" {
+		return fmt.Errorf("%s: FromRef and FromCommand are mutually exclusive", op)
+	}
+	if literal != "" && (c.ref != "" || c.command != "") {
+		return fmt.Errorf("%s: a literal value and a resolver are mutually exclusive", op)
+	}
+	if literal == "" && c.ref == "" && c.command == "" {
+		return fmt.Errorf("%s: needs a value, or FromRef/FromCommand to resolve one", op)
+	}
+	return nil
+}
 
 // SetOption configures SetToken and SetRegistry.
 type SetOption func(*setConfig)
@@ -47,12 +91,12 @@ func SetToken(ctx context.Context, c *client.Client, scope, service, token strin
 	if service == "" {
 		return errors.New("secret set: service must not be empty")
 	}
-	if token == "" {
-		return errors.New("secret set: token must not be empty")
-	}
 	var cfg setConfig
 	for _, o := range opts {
 		o(&cfg)
+	}
+	if err := cfg.validateSource("secret set", token); err != nil {
+		return err
 	}
 	if err := checkNotStored(ctx, c, scope, "service", service, cfg.overwrite, "secret set", "WithOverwrite"); err != nil {
 		return err
@@ -63,9 +107,16 @@ func SetToken(ctx context.Context, c *client.Client, scope, service, token strin
 	if cfg.overwrite {
 		args = append(args, "--force")
 	}
+	resolver, resolved := cfg.resolverArgs()
+	args = append(args, resolver...)
 
 	r, err := c.Runner()
 	if err != nil {
+		return err
+	}
+	// A resolver carries no value to hide, so there is nothing to pipe.
+	if resolved {
+		_, err = r.Capture(ctx, nil, args...)
 		return err
 	}
 	_, err = r.CaptureStdin(ctx, strings.NewReader(token+"\n"), nil, args...)
@@ -171,3 +222,53 @@ func SetRegistry(ctx context.Context, c *client.Client, scope string, cred Regis
 	_, err = r.CaptureStdin(ctx, strings.NewReader(cred.Password+"\n"), nil, args...)
 	return err
 }
+
+// FromRef resolves the secret from an external store instead of storing a
+// literal (`--ref`, added in sbx v0.39.0). Two forms are accepted upstream: a
+// 1Password reference, "op://vault/item/field", and an AWS Secrets Manager ARN.
+//
+// The daemon resolves it on demand, so the value never enters the secret store
+// — only the reference does. Resolution runs on the *host*: a 1Password ref
+// needs the `op` binary on PATH and an unlocked session, an ARN needs AWS
+// credentials the daemon can see. Neither is checked until the value is
+// actually needed, except once at store time, which WithoutVerify skips.
+//
+// Mutually exclusive with FromCommand, and with passing a literal value.
+func FromRef(ref string) SetOption { return func(c *setConfig) { c.ref = ref } }
+
+// FromCommand resolves the secret from a command's standard output instead of
+// storing a literal (`--command`, added in sbx v0.39.0).
+//
+// The command text is stored by the daemon and replayed on demand, so put any
+// environment it needs in the command itself or in a wrapper script. Never
+// embed a secret in the command: the text appears in the argument vector when
+// this call runs, in shell history, and in `sbx secret ls` output — upstream
+// prints that same warning. FromRef is the safer choice where it fits.
+//
+// Mutually exclusive with FromRef, and with passing a literal value.
+func FromCommand(cmd string) SetOption { return func(c *setConfig) { c.command = cmd } }
+
+// WithRefresh sets how often a resolved secret is re-fetched (`--refresh`):
+// "on-demand", or a duration such as "30m". Upstream defaults service secrets
+// to "55m" and custom secrets to "on-demand".
+//
+// Ignored without FromRef or FromCommand — a literal value has nothing to
+// refresh from.
+func WithRefresh(policy string) SetOption { return func(c *setConfig) { c.refresh = policy } }
+
+// WithoutVerify skips the one-off check that the resolver actually works when
+// the secret is stored (`--no-verify`).
+//
+// Without it a broken resolver fails loudly and immediately — a missing `op`
+// binary reports "verify ref failed (not_found)", a command exiting non-zero
+// reports "verify command failed (exit_status)" — and nothing is stored. Skip
+// the check only when the resolver cannot succeed yet at store time, such as a
+// vault that is still locked.
+func WithoutVerify() SetOption { return func(c *setConfig) { c.noVerify = true } }
+
+// WithResolverErrors includes the resolver's standard error in the failure
+// message when the store-time check fails (`--show-error`).
+//
+// Off by default for a reason upstream states plainly: that output may contain
+// secrets. Turn it on to debug a resolver, not in production logging.
+func WithResolverErrors() SetOption { return func(c *setConfig) { c.showError = true } }
