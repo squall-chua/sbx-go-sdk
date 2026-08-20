@@ -7,15 +7,55 @@ Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.5 binary, with DWARF)
 > the drift gate. If a version marker below ever disagrees with that table,
 > the table wins.
 
-- **Module:** `github.com/docker/sandboxes` `v0.38.0`
+- **Module:** `github.com/docker/sandboxes` `v0.39.0`
 - **Main package:** `github.com/docker/sandboxes/cli-plugin/cmd/sandboxes`
-- **Daemon API version:** `0.26.0` (build `c022b14634c4bea846ca12870d1d5e97d5868b54`, 2026-08-07)
+- **Daemon API version:** `0.26.0` (build `def8cb0523a77e757bdd6ef52b459fe374f3783e`)
 - **What it is:** Docker Sandboxes — isolated micro-VM sandboxes for AI coding agents.
   Shipped both as a standalone `sbx` binary and as a `docker sandboxes` CLI plugin.
 - **Single-binary model (like docker/dockerd):** the same binary is both the CLI
   *and* the `sandboxd` daemon. The CLI re-execs itself to start the daemon.
 
-> Refreshed for **v0.38.0** (daemon api `0.24.0` → `0.26.0`). **No wire-type changes again**: re-running
+> Refreshed for **v0.39.0** (daemon api `0.26.0`, **unchanged**). The REST surface did not move:
+> the `sandboxapi.New<Op>Request` symbol set is identical to v0.38.0's 46, so every change this
+> release is CLI-side. Wire types gained one additive field, `SandboxInfo.StoppedAt` — and the
+> daemon does not emit it yet, verified against a stopped sandbox.
+>
+> New commands: **`sbx env`** (declarative `.sbxenv.yaml` environments — `create`, `run`, `exec`,
+> `rm`, deep-merged with docker-compose `-f` semantics); **`sbx prune`**; **kit signing**
+> (`kit sign`, `kit verify`, `kit provenance`, and `push --sign`, cosign/Sigstore with a SLSA
+> provenance attestation attached as an OCI referrer); `skills ls`; `setup ssh remove`. New flags:
+> `--env` / `--env-file` on `create` and `run` (which finally reaches the `Environment` create
+> field), external secret resolvers on `secret set` / `set-custom` (`--ref` for 1Password `op://`
+> and AWS Secrets Manager ARNs, plus `--command`, `--refresh`, `--no-verify`, `--show-error`,
+> `-t/--token`), `reset --preserve-secrets`, `template save -o`, `daemon status --json`.
+> `sbx ssh` became hidden — both it and `sbx setup ssh` still work.
+>
+> Three output changes broke the SDK, and the shape of each is worth remembering.
+> **`kit inspect --json` flattened onto the kit spec v2 document**: no `manifest` wrapper, and
+> `caps`/`commands`/`agentContext` are now `permissions`/`setup`/`agentInstructions` on output
+> too, for v1 and v2 kits alike (a v1 kit gains a deprecation entry in `warnings` per legacy key).
+> `publishedPorts` is gone with no v2 equivalent. **`sbx mcp ls` stopped being a table** — it is
+> now grouped by gateway with a free-form header and footer, prints transport and readiness, and
+> no longer carries the URL or command at all. There is still no `--json`, so a header-anchored
+> parse fails *silently*: `coltable` reported `ErrNoHeader`, which the SDK read as "no servers".
+> A parser anchored on a header must treat a missing header as an error, never as emptiness.
+> **`sbx diagnose -o json` exits non-zero when any check fails** and still prints the whole
+> report, so an exit-code-first wrapper throws away exactly the diagnosis a broken host needs.
+>
+> Settings grew a lot: 9 feature flags → 23, 18 non-flag settings → 23. The new
+> `feature.sbx-api` family (`sbx-api` plus ten `sbx-api-*` sub-flags, covering events, files,
+> images, mcp, netpolicy, process, sandbox and more) looks like a gated public REST API. Probe it
+> next sync — if it exposes creation, `sandbox.Create` could stop shelling out. Also new:
+> `feature.sandbox-usb` (with `SandboxCreateRequest.UsbDevices`), `feature.network-user-prompts`,
+> `update.channel`, and the kit-signing settings `kit.requireSignature`, `kit.trustedSigners`,
+> `kit.ignoreTransparencyLog`.
+>
+> Five routes answer `OPTIONS` but were never in §3's table: `GET /events`,
+> `POST|DELETE /sandbox/{name}/mounts`, `POST /sandbox/{name}/kits`, `GET /policy/network/log`,
+> `POST /daemon/shutdown`, and `DELETE /sandbox/{name}/mcp/gateway`. None is new — the matching
+> op symbols were all present at v0.38.0. They were simply never probed.
+>
+> Earlier, for **v0.38.0** (daemon api `0.24.0` → `0.26.0`). **No wire-type changes again**: re-running
 > `dwarfgen` produced the same 11 types with the same fields; the only diff was the four known
 > generator artifacts the header of `internal/api/types_gen.go` already documents, so that file was
 > reverted rather than regenerated. The whole existing SDK surface passes `internal/integration`
@@ -33,8 +73,9 @@ Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.5 binary, with DWARF)
 > `secret set --registry` no longer means global; `--all-sandboxes` does. **Kit spec v2**:
 > `schemaVersion: "2"` got a decoder of its own (`spec.specFileV2`), so v1 key names no longer parse
 > under it — `caps` → `permissions`, `commands` → `setup`, `commands.initFiles` → `setup.files`,
-> `agentContext` → `agentInstructions`. `kit inspect --json` still emits the normalized v1 shape,
-> so `kit.Info` is unaffected. Also fixed upstream: a `sbx cp` copy-out destination escape
+> `agentContext` → `agentInstructions`. At v0.38.0 `kit inspect --json` still emitted the
+> normalized v1 shape, so `kit.Info` was unaffected — v0.39.0 reversed that, see above.
+> Also fixed upstream: a `sbx cp` copy-out destination escape
 > (CVE-2026-17106) — the SDK's own extractor (`internal/untar`, `os.Root`-confined) was never
 > affected.
 >
@@ -71,16 +112,33 @@ sbx tui                                       # open the interactive TUI dashboa
 sbx cp [flags] SRC DST                        # copy files host <-> sandbox (SANDBOX:PATH)
 sbx create [flags] AGENT PATH [PATH...]       # create a sandbox for an agent
     create claude|codex|copilot|cursor|docker-agent(cagent)|droid|gemini|kiro|opencode|shell
-      flags: --clone --cpus --deny-network --kit --memory/-m --name --profile --publish/-p
-             --quiet/-q --static-mcp --template/-t
+      flags: --clone --cpus --deny-network --env/-e --env-file --kit --memory/-m --name
+             --profile --publish/-p --quiet/-q --static-mcp --template/-t
+      (--env/-e and --env-file are NEW in v0.39.0; --env takes KEY=VALUE, or a bare
+       KEY to inherit the caller's value. This is what finally reaches the
+       SandboxCreateRequest.Environment field)
       (--publish/-p is NEW in v0.37.0; --deny-network and --static-mcp are NEW in v0.38.0;
        --no-share-skills exists but is gated off by a remote feature flag, so it is absent
        from --help on this host)
 sbx diagnose [-o json|github-issue] [--upload]  # diagnose install issues (-o/--upload NEW in v0.38.0)
+    (exits NON-ZERO when any check fails, and still prints the whole report)
+sbx env COMMAND                               # NEW in v0.39.0 (experimental) .sbxenv.yaml environments
+    env create [PATH...] [--clone] | run [PATH...] [--clone] [-d/--detached]
+        | exec [flags] [PATH...] -- COMMAND [ARG...] | rm [PATH...] [-f] [--prune-bindings]
+    (each PATH is a directory or the file itself; several deep-merge in order,
+     docker-compose `-f` semantics. Values expand ${VAR} / $VAR / ${VAR:-default})
 sbx exec [flags] SANDBOX COMMAND [ARG...]     # exec a command in a sandbox
 sbx kit COMMAND                               # (experimental) kit artifacts
     kit add SANDBOX REFERENCE | inspect REFERENCE | pack DIR | pull REFERENCE
-        | push DIR REFERENCE | validate REFERENCE
+        | push DIR REFERENCE [--sign] [--key PEM] [--identity-token[-file] T] [--tlog-upload]
+        | validate REFERENCE
+    kit sign REFERENCE [--key PEM] [--identity-token[-file] T] [--tlog-upload]   # NEW in v0.39.0
+    kit verify REFERENCE [--key PEM] [--certificate-identity[-regexp] I]         # NEW in v0.39.0
+        [--certificate-oidc-issuer[-regexp] U] [--insecure-ignore-tlog]
+    kit provenance REFERENCE [same verification flags as verify]                 # NEW in v0.39.0
+    (signing is keyless via Fulcio+Rekor unless --key; a local directory gets a
+     kit.sig.bundle sidecar, an OCI reference gets an OCI referrer. Every push
+     also attaches a SLSA provenance attestation, unsigned unless --sign)
 sbx login [flags]                             # sign in to Docker
 sbx logout [flags]                            # stop sandboxes + sign out
 sbx ls [flags]                                # list sandboxes
@@ -88,7 +146,13 @@ sbx mcp COMMAND                               # NEW in v0.38.0 — register/mana
     mcp add NAME (--url URL | --command CMD [--args a,b] [--dir D])
         [--local] [--scope S]... [--client-id ID] [--oauth-authorization-server PATH|URL]
         [--skip-ssrf-check] [--skip_auth]
-    mcp ls | inspect NAME | rm NAME            # ls/inspect print tables, no --json
+    mcp ls | inspect NAME | rm NAME            # no --json on either
+    (v0.39.0 reshaped `mcp ls`: no more NAME/TYPE/URL-COMMAND header. It now
+     groups by gateway under a free-form header line, indents each server as
+     `NAME  local|remote  stdio|http  ✓ ready`, and closes with an
+     `N servers · …` footer. The URL/command is gone from the listing entirely —
+     only `mcp inspect` still prints it. Columns are separated by a single
+     space in places, so a two-space gutter rule does not split them.)
     mcp load NAME --sandbox SANDBOX            # attach to a RUNNING sandbox's gateway
     mcp auth [NAME|--all] [--scope S]... [--format text|json] [--verbose]
     mcp auth status [NAME|--all] [--format text|json] | auth rm [NAME|--all]
@@ -102,7 +166,8 @@ sbx policy COMMAND                            # manage sandbox network/egress po
     policy check network [--sandbox S] [--json] [--verbose] TARGET   # NEW in v0.35.0
     policy inspect <policy-or-rule>             # NEW in v0.35.0 (by policy/rule ID or name)
 sbx ports SANDBOX [flags]                     # manage published ports
-sbx reset [flags]                             # reset all sandboxes + clean state
+sbx prune [--dry-run] [--filter since=DURATION] [-f]   # NEW in v0.39.0 — remove stopped sandboxes
+sbx reset [-f] [--preserve-secrets]           # reset all sandboxes + clean state
 sbx rm [SANDBOX...] [--all] [-f/--force]       # remove sandboxes; --all is NEW in v0.37.0
 sbx run [flags] SANDBOX | AGENT [PATH...] [-- AGENT_ARGS...]   # run/attach an agent
       flags: as create, plus --publish/-p (NEW) and a hidden --detached/-d
@@ -111,9 +176,11 @@ sbx secret COMMAND                            # manage stored secrets
     secret ls [-g|--sandbox S] [--service SVC] | rm [SERVICE] [--sandbox S]
         | rm --placeholder PH | rm [--all-sandboxes] --registry REF
     secret set [SERVICE] [--sandbox S] [--oauth]
+        [--ref op://…|arn:…] [--command CMD] [--refresh on-demand|DURATION]
+        [--no-verify] [--show-error] [-t/--token V] [-f/--force]     # all NEW in v0.39.0
         | set [--all-sandboxes|--sandbox S] --registry HOST --password-stdin [--username U]
         | set-custom [--sandbox S] --host H... --env E --value V [--placeholder P]
-    secret import                               # NEW in v0.35.0 (import secrets found in host env vars)
+    secret import [SERVICE] [--all] [--dry-run] [-f]   # NEW in v0.35.0; [SERVICE]/--all NEW in v0.39.0
     (v0.38.0 reshaped scope: global is the default for service and custom secrets,
      `-g` and a bare positional SANDBOX are deprecated-but-working and print a warning,
      and a registry credential's default is a third scope, "(host only)" — host-side
@@ -121,13 +188,16 @@ sbx secret COMMAND                            # manage stored secrets
      global meaning.)
 sbx setup                                     # (experimental) detect host config + prepare sbx
     setup ssh [--alias PATTERN]                 # NEW path in v0.37.0 for `sbx ssh setup` (both still work)
+    setup ssh remove                            # NEW in v0.39.0 — undo what `setup ssh` wrote
 sbx skills COMMAND                            # NEW in v0.37.0 (experimental) shared agent skills store
     skills import [--dry-run] [-f/--force]      # copy host skill dirs into the shared store
-sbx ssh [flags]                               # now a visible top-level command (provisioning helper)
+    skills ls                                   # NEW in v0.39.0 — list the store's skill folders
+sbx ssh [flags]                               # HIDDEN again in v0.39.0 (still registered, still works)
     ssh setup [--alias PATTERN]                 # hidden alias of `sbx setup ssh`; same flags
 sbx stop SANDBOX [SANDBOX...]                  # stop without removing
 sbx template COMMAND                          # manage sandbox templates
-    template load FILE | ls | rm TAG|ID | save SANDBOX TAG
+    template load FILE | ls [--json] | rm TAG|ID | save SANDBOX TAG [-o FILE]
+        (-o on save, which also exports the image to a tar, is NEW in v0.39.0)
 sbx version                                   # version info
 sbx completion bash|zsh|fish|powershell
 ```
@@ -136,7 +206,7 @@ sbx completion bash|zsh|fish|powershell
 ```
 sbx daemon                                    # manage the sandboxd daemon
     daemon start [-d/--detach] [--policy allow-all|balanced|deny-all]
-    daemon status
+    daemon status [--json]                      # --json NEW in v0.39.0
     daemon stop
     daemon restart                              # NEW in v0.38.0
     daemon log-level [set <proxy|general|all> <level>]
@@ -262,6 +332,15 @@ Base: `http://localhost` over the unix socket. Echo router. `{name}` = sandbox i
 | GET  | `/daemon/settings` | all settings → `{"settings":[…]}`; the JSON behind `sbx settings list` |
 | GET  | `/mcp/gateway-mode` | **NEW in v0.38.0** — which MCP gateway sandboxes get: `{decision, gateway_url, reason}` |
 | POST | `/daemon/reset` | reset all sandboxes + daemon state (`sbx reset`) |
+| POST | `/daemon/shutdown` | stop the daemon (`Client.StopDaemon`) |
+| GET  | `/events` | daemon event stream (`sandboxapi.Event`, `StreamEventsParams`) |
+| GET  | `/policy/network/log` | network policy log (`sbx policy log`) |
+| POST | `/sandbox/{name}/kits` | add a kit to a sandbox (`sbx kit add`) |
+| POST\|DELETE | `/sandbox/{name}/mounts` | add/remove an allowed path (`AddAllowedPath`, `RemoveAllowedPath`) |
+| DELETE | `/sandbox/{name}/mcp/gateway` | tear down a sandbox's MCP gateway |
+
+The last six were first mapped at v0.39.0 but are **not new** — every matching op symbol was
+already present at v0.38.0. They had simply never been probed. The SDK calls none of them.
 
 **Live-verified at v0.37.0** (paths absent or `404` at v0.35.0):
 
@@ -387,6 +466,15 @@ Through v0.37.0 the flags were invisible to `settings list` and reachable only o
 `SandboxCreateRequest` carries the matching `ShareSkills *bool` field. Note `--all` changes the
 **table** and the `--json` array alike, and a flag's `source` can be `remote`.
 
+**v0.39.0: 23 flags and 23 non-flag settings.** New flags: `feature.sandbox-usb` (paired with
+`SandboxCreateRequest.UsbDevices`), `feature.network-user-prompts`, `update.channel`, and the
+`feature.sbx-api` family — `sbx-api` plus `sbx-api-events`, `-files`, `-images`, `-localadmin`,
+`-localops`, `-mcp`, `-netpolicy`, `-operations`, `-process`, `-sandbox`. That family reads like
+a gated public REST API; probing what each unlocks is the first job of the next sync, because a
+REST creation path would let `sandbox.Create` stop shelling out. New non-flag settings:
+`claude.remoteControl`, `platform.images.registryMirror`, and the three kit-signing settings
+`kit.requireSignature`, `kit.trustedSigners`, `kit.ignoreTransparencyLog`.
+
 The 18 non-flag settings at v0.38.0: `clipboard.imagePaste`, `kit.allowLocalKits`,
 `kit.allowedSources`, `mcp.forceLocalGateway`, `no_proxy`, `no_proxy.daemon`, `no_proxy.sandbox`,
 `platform.allowExperimentalFeatures`, `platform.images.useDHI`, `proxy`, `proxy.daemon`,
@@ -397,19 +485,22 @@ A setting object gained four fields in v0.38.0: `default`, `env_var`, `feature_f
 `requires_restart`. The last is the `RESTART` column of the table, and `sbx daemon restart` (also
 new) is what applies such a change.
 
-### `SandboxCreateRequest` (DWARF, v0.38.0)
+### `SandboxCreateRequest` (DWARF, v0.39.0)
 
 The full create body the daemon accepts, well beyond what the CLI exposes:
 `Agent`, `Workspace` (both required), `AdditionalWorkspaces`, `AgentOptions`, `BindingsPath`,
 `Clone`, `ClonedWorkspaceSize`, `Cpus`, `CredentialValues`, `Detached`, `DindVolumeSize`,
 `Display`, `EnableVirtiofsCache`, `Environment`, `Gpu`, `KitArtifacts`, `Kits`, `Memory`, `Name`,
-`Profile`, `PullPolicy`, `RootFilesystemSize`, `SecretsScope`, `ShareSkills`, `Template`.
+`Profile`, `PullPolicy`, `RootFilesystemSize`, `SecretsScope`, `ShareSkills`, `Template`,
+`UsbDevices`.
 
-`ClonedWorkspaceSize` and `Gpu` are new in v0.38.0 (`Gpu` pairs with the `feature.sandbox-gpu`
-flag). Neither `--static-mcp` nor `--deny-network` appears here: both new create flags are
-applied by the CLI through separate calls after create, not carried in the create body.
+`UsbDevices` is new in v0.39.0 and pairs with the `feature.sandbox-usb` flag; no CLI flag reaches
+it. `ClonedWorkspaceSize` and `Gpu` were new in v0.38.0 (`Gpu` pairs with `feature.sandbox-gpu`).
+`Environment` became reachable in v0.39.0 through `create --env` / `--env-file`; the other
+CLI-invisible fields are unchanged. Neither `--static-mcp` nor `--deny-network` appears here:
+both are applied by the CLI through separate calls after create, not carried in the create body.
 
-CLI-side client ops, from the `sandboxapi.New<Op>Request` symbols at v0.38.0
+CLI-side client ops, from the `sandboxapi.New<Op>Request` symbols — **byte-identical at v0.39.0**
 (`go tool nm /usr/bin/sbx | grep -oE 'sandboxapi\.New[A-Za-z]+Request'`):
 
 `AddAllowedPath, AddMcpGatewayServer, ApplyNetworkPolicySetup, CheckMcpRegistration,
@@ -423,8 +514,9 @@ ResetDaemon, ResizeExec, SaveSandbox, SetDaemonLogLevel, SetDaemonSetting, Start
 StartSandbox, StopMcpGateway, StopSandbox, SwapSandboxContainer, SyncCredentials,
 UnpublishPorts`.
 
-Six symbols are new since v0.37.0: `GetMcpGatewayMode`, `RefreshPolicy`, and the four
-`*DaemonSetting(s)` ops. The MCP *registry* ops (`AddMcpGatewayServer`, `CheckMcpRegistration`,
+No symbol changed between v0.38.0 and v0.39.0 — the diff is empty, which is the single
+strongest signal that v0.39.0 is a CLI-only release. Six were new at v0.38.0:
+`GetMcpGatewayMode`, `RefreshPolicy`, and the four `*DaemonSetting(s)` ops. The MCP *registry* ops (`AddMcpGatewayServer`, `CheckMcpRegistration`,
 `StartMcpGateway`, `StopMcpGateway`) were already present at v0.37.0 while `sbx mcp` was still
 internal — their presence never meant the command existed.
 
@@ -455,9 +547,19 @@ binary's DWARF. Two types matter:
 The two shapes differ. Flat `template` / `binary` / `runOptions` keys are rejected on input ("use
 the 'sandbox:' block instead") yet emitted on output, derived from the `sandbox:` block.
 
-`kit inspect --json` **normalizes v2 back to the v1 output shape** — a v2 spec written with
-`permissions:` is reported under `caps:` — so `kit.Info` and `kit.Manifest` need no v2 variant.
-Verified against a migrated fixture at v0.38.0 (`internal/integration/testdata/fixture-kit`).
+**v0.39.0 reversed the normalization direction.** Through v0.38.0 `kit inspect --json`
+normalized v2 *back* to the v1 output shape — a spec written with `permissions:` was reported
+under `caps:`, inside a `manifest` wrapper. It now emits the v2 document itself: flat, with the
+v2 key names, for v1 and v2 kits alike. A v1 kit is normalized *up*, keeping its own
+`schemaVersion: "1"` and gaining one `warnings` entry per legacy key, e.g.
+`deprecated field "caps": use 'permissions:' block instead (kit-spec v2)`. So `kit.Info` follows
+the v2 shape and `kit.Manifest` is gone. Verified at v0.39.0 against both a v1 and a v2 fixture,
+of kind `mixin` and kind `sandbox`.
+
+Two shapes only the `sandbox` kind emits: a `sandbox` block (`image`, `build`, `entrypoint`,
+`command` — expanded on output into `{default, interactive}` — and `resources`, whose `memory`
+is normalized to a unit string such as `"2048m"`), and the `security` block (`privileged`).
+`publishedPorts` and `volumes` parse under v1 but are rejected by the v2 decoder.
 
 **Method note: DWARF carries no Go struct tags at all** — confirmed empirically (a throwaway
 binary's member DIEs expose `Name`, `Type`, `DataMemberLoc`, and one Go-vendor boolean, nothing
@@ -483,6 +585,8 @@ check around it, and shelling out gets both for free.
 go version -m /usr/bin/sbx                       # module + deps
 go tool nm /usr/bin/sbx | grep docker/sandboxes  # symbol map
 sbx --help ; sbx <cmd> --help                    # cobra command tree
+# walk it: for each "Available Commands" block, recurse. Hidden commands
+# (daemon, inspect, settings, ssh) never appear — ask for them by name.
 sbx -D daemon status                             # prints socket + log paths
 SOCK=~/.local/state/sandboxes/sandboxes/sandboxd/sandboxd.sock
 curl -s --unix-socket "$SOCK" http://localhost/daemon/health

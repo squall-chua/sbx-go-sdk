@@ -1,7 +1,7 @@
 # sbx-go-sdk
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev/)
-[![sbx v0.38.0](https://img.shields.io/badge/sbx-v0.38.0-2496ED?logo=docker)](https://docs.docker.com/)
+[![sbx v0.39.0](https://img.shields.io/badge/sbx-v0.39.0-2496ED?logo=docker)](https://docs.docker.com/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/squall-chua/sbx-go-sdk.svg)](https://pkg.go.dev/github.com/squall-chua/sbx-go-sdk)
 
 A Go SDK for automating **Docker Sandboxes** (`sbx`) — isolated micro-VM environments
@@ -153,7 +153,7 @@ sbx login
 **4. Verify** the CLI and daemon are healthy:
 
 ```bash
-sbx version    # CLI + daemon version (target this SDK against v0.38.0)
+sbx version    # CLI + daemon version (target this SDK against v0.39.0)
 sbx diagnose   # diagnose install / daemon issues
 sbx ls         # list sandboxes (an empty list means the daemon is reachable)
 ```
@@ -175,7 +175,7 @@ Requires:
   [Set up `sbx`](#set-up-sbx-prerequisite) above. The SDK shells out to it for create/run/cp/etc.
 - A reachable **`sandboxd`** — pass `client.WithAutoStart()` and the SDK will start it for you.
 
-This SDK is built and live-verified against **`sbx` / `sandboxd` v0.38.0** (daemon API `0.26.0`);
+This SDK is built and live-verified against **`sbx` / `sandboxd` v0.39.0** (daemon API `0.26.0`);
 see [Version alignment](#version-alignment) for how it tracks newer `sbx` releases.
 
 ## Quick start
@@ -446,6 +446,12 @@ for _, it := range rep.Section("SKILLS") {
 larger `/daemon/diagnostics` report. A warning does not make `d.OK()` false — a host with no
 internet to check for CLI updates warns and still works. `diagnose --upload` is deliberately not
 wrapped: shipping host diagnostics to Docker support should be an explicit act.
+
+A failing check is a result, not an error. The CLI exits non-zero whenever any check fails and
+still prints the whole report, so `Diagnose` returns the report with a nil error however the CLI
+exited — read `d.OK()` or `d.Summary.Fail`. The exit code only surfaces when there is no report
+to return, such as a missing binary. Before v0.39.0 the SDK returned the exit error and dropped
+the report, which lost exactly the diagnosis a broken host needed.
 
 > ⚠️ Avoid `c.Reset(ctx)` unless you mean it: it wipes **all** sandboxes and daemon state.
 > `c.Logout(ctx)` is milder but still stops **every running sandbox** before signing out —
@@ -822,7 +828,7 @@ refs, _ := sb.Kits(ctx) // []string, in the order they were added
 
 ```go
 info, _ := kit.Inspect(ctx, c, "./my-kit")   // dir, ZIP, git repo, or OCI reference
-fmt.Println(info.Manifest.Name, info.Manifest.Kind, info.Warnings)
+fmt.Println(info.Name, info.Kind, info.Warnings)
 
 err := kit.Validate(ctx, c, "./my-kit")      // dir, ZIP or git repo — NOT an OCI reference
 if errors.Is(err, client.ErrKitRejected) {
@@ -838,9 +844,16 @@ _ = kit.Push(pushCtx, c, "./my-kit", "ghcr.io/me/kit:v1")
 ```
 
 `Inspect` returns a report, not the kit — it omits the `files/` payload that `Pack` writes.
-Struct-valued fields on `kit.Info` and `kit.Manifest` stay as `json.RawMessage`
+Struct-valued fields on `kit.Info` stay as `json.RawMessage`
 ([ADR 0005](docs/adr/0005-type-kit-strings-pass-structs-through.md)); unmarshal one into a shape of
-your own when you need it. `Push` and `Pull` have never completed against a real registry — see
+your own when you need it.
+
+> **Changed in v0.39.0.** `kit inspect --json` dropped the `manifest` wrapper and now reports the
+> kit spec v2 shape, flat, for v1 and v2 kits alike. `kit.Manifest` is gone and its fields moved
+> to the top level of `kit.Info`: `info.Manifest.Name` is now `info.Name`. `Caps` is now
+> `Permissions`, `Commands` is now `Setup`, `AgentContext` is now the `AgentInstructions` block,
+> and `PublishedPorts` is gone with no v2 equivalent. A v1 kit still reads the same, apart from
+> `SchemaVersion` and a deprecation entry in `Warnings` naming each legacy key. `Push` and `Pull` have never completed against a real registry — see
 [Known deviations](#known-deviations--limitations).
 
 ### 15. MCP servers
@@ -856,7 +869,7 @@ _ = mcp.AddRemote(ctx, c, "deepwiki", "https://mcp.deepwiki.com/mcp")
 // upstream documents this as ad-hoc development only.
 _ = mcp.AddLocal(ctx, c, "github", "npx", []string{"@modelcontextprotocol/server-github"})
 
-servers, _ := mcp.List(ctx, c)              // [{Name, Type: local|remote, Target}]
+servers, _ := mcp.List(ctx, c)              // [{Name, Type: local|remote, Transport, Status}]
 d, _ := mcp.Inspect(ctx, c, "deepwiki")     // d.URL, d.Transport, d.RequiresOAuth, d.Fields
 
 // Fix the set at creation…
@@ -957,11 +970,11 @@ source. Invoke it with `/sbx-go-sdk`.
 ## Version alignment
 
 This SDK is **pinned to a tested `sbx` / `sandboxd` range**. It is currently built and
-live-verified against **`sbx` v0.38.0** with daemon REST **`api_version 0.26.0`**. Both values
+live-verified against **`sbx` v0.39.0** with daemon REST **`api_version 0.26.0`**. Both values
 are exported constants you can read at runtime:
 
 ```go
-client.ClientVersion    // "v0.38.0" — the sbx/daemon version the SDK was built against
+client.ClientVersion    // "v0.39.0" — the sbx/daemon version the SDK was built against
 client.TestedAPIVersion // "0.26.0"  — the daemon REST api_version its wire types were generated from
 ```
 
@@ -1012,7 +1025,7 @@ contract test is what tells maintainers a re-sync is due.
 
 ## Known deviations & limitations
 
-Verified live against `sandboxd` v0.38.0:
+Verified live against `sandboxd` v0.39.0:
 
 - **`CopyFrom` is REST and auto-starts the sandbox** — `GET /sandbox/{name}/files?path=…` works as
   of v0.37.0 (it was `404` through v0.35.0). `CopyFrom` starts a stopped sandbox first, matching
@@ -1043,6 +1056,10 @@ Verified live against `sandboxd` v0.38.0:
   upstream. `mcp.AuthStatus` and `mcp.AuthRemove` do get JSON (`--format json`). `sbx mcp auth
   <name>` (interactive browser OAuth) is not wrapped: register with `mcp.WithSkipAuth()`,
   authorize out of band, then confirm with `mcp.AuthStatus`.
+- **`mcp.List` no longer reports a server's URL or command** — v0.39.0 replaced the
+  NAME/TYPE/URL-COMMAND table with a listing grouped by gateway, which prints transport and
+  readiness instead of the endpoint. `mcp.Server` follows it: `Target` is gone, `Transport` and
+  `Status` take its place. Read the endpoint from `mcp.Inspect`, which still prints both.
 - **`sbx mcp rm` on an unregistered name exits 0** — so `mcp.Remove` cannot tell you whether it
   actually removed anything. Call `mcp.List` first if that distinction matters.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the

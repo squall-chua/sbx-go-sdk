@@ -70,7 +70,7 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 `WithPublish` (`-p`, v0.37.0), `WithKit` (`--kit`, v0.34.0), `WithDenyNetwork`, `WithStaticMCP`
 (both v0.38.0), `WithoutSharedSkills`. Remove option: `WithForce` (removes an active session).
 
-## Gotchas (verified against sandboxd v0.38.0)
+## Gotchas (verified against sandboxd v0.39.0)
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
@@ -95,6 +95,16 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   do get `--format json`. `sbx mcp auth <name>` (interactive OAuth) is not wrapped — register with
   `mcp.WithSkipAuth()`, authorize out of band, confirm with `mcp.AuthStatus`. `mcp.Remove` on an
   unregistered name exits 0, so it cannot report whether anything was removed.
+- **`mcp.List` gives no URL or command** (changed in v0.39.0). A row is
+  `{Name, Type, Transport, Status}` — the listing itself stopped carrying the endpoint. Read it
+  from `mcp.Inspect`, which still prints `URL` for a remote server and `Command` for a local one.
+- **`kit.Info` is flat** (changed in v0.39.0). `kit.Manifest` is gone: use `info.Name`,
+  `info.Kind`, `info.SchemaVersion`. The policy blocks follow kit spec v2 — `Permissions` (was
+  `Caps`), `Setup` (was `Commands`), `AgentInstructions` (was `AgentContext`). A v1 kit reads the
+  same, plus a deprecation entry per legacy key in `Warnings`.
+- **`c.Diagnose` returns the report even when checks fail.** `sbx diagnose` exits non-zero on any
+  failure, so treating the exit code as an error would drop the diagnosis. Branch on `d.OK()` or
+  `d.Summary.Fail`, never on the error alone.
 - **`sb.Inspect` vs `sb.Summary`.** `Inspect` is the daemon's REST record. `Summary`
   (`sbx inspect --json`, shell-out) is the only source of `AuthMode`, `Secrets`, `Sessions` and
   `MCPGateway`. Check `Summary.Sessions` before reaching for `Remove(WithForce())`.
