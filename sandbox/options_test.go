@@ -161,3 +161,41 @@ func TestWithKit_EmitsRepeatedFlagOnRun(t *testing.T) {
 	require.Contains(t, joined, "--kit ghcr.io/org/b:1.0")
 	require.Contains(t, joined, "--kit ghcr.io/org/c:1.0")
 }
+
+// --env-file must be emitted before -e, because the CLI resolves them in flag
+// order and documents that --env wins over any file.
+func TestWithEnv_EmitsFilesBeforeVarsOnCreateAndRun(t *testing.T) {
+	d := newDefinition(
+		WithAgent("shell"),
+		WithWorkspace("/ws"),
+		WithEnv("DIRECT=one"),
+		WithEnvFile("/tmp/a.env", "/tmp/b.env"),
+		WithEnv("INHERITED"),
+	)
+
+	for name, build := range map[string]func() ([]string, error){
+		"create": d.toCreateArgs,
+		"run":    d.toRunArgs,
+	} {
+		args, err := build()
+		require.NoError(t, err, name)
+		require.Subset(t, args, []string{"-e", "DIRECT=one"}, name)
+		require.Subset(t, args, []string{"-e", "INHERITED"}, name)
+		require.Subset(t, args, []string{"--env-file", "/tmp/a.env"}, name)
+		require.Subset(t, args, []string{"--env-file", "/tmp/b.env"}, name)
+
+		joined := strings.Join(args, " ")
+		require.Less(t, strings.Index(joined, "--env-file"), strings.Index(joined, "-e "),
+			"%s: every --env-file must precede the first -e", name)
+		require.Less(t, strings.Index(joined, "/tmp/a.env"), strings.Index(joined, "/tmp/b.env"),
+			"%s: file order is preserved, a later file wins", name)
+	}
+}
+
+func TestWithEnv_AbsentWhenUnset(t *testing.T) {
+	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"))
+	args, err := d.toCreateArgs()
+	require.NoError(t, err)
+	require.NotContains(t, args, "-e")
+	require.NotContains(t, args, "--env-file")
+}

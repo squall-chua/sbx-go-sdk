@@ -117,3 +117,32 @@ func WithoutSharedSkills() Option {
 func WithStaticMCP(names ...string) Option {
 	return func(d *Definition) { d.staticMCP = append(d.staticMCP, names...) }
 }
+
+// WithEnv sets environment variables inside the sandbox (`-e`, added in sbx
+// v0.39.0). Each entry is either "KEY=VALUE", or a bare "KEY" to inherit the
+// value from the calling process's own environment — the SDK passes its
+// environment to the CLI child, so a bare key resolves against your process.
+//
+// This is the only route to the daemon's SandboxCreateRequest.Environment
+// field, which had no CLI flag before v0.39.0.
+//
+// On Create the variables are baked into the sandbox. On Run they also apply
+// to the agent session, so they take effect on a re-attach to an existing
+// sandbox, not only when this call creates it.
+//
+// WithEnv wins over any file named by WithEnvFile. May be called once with
+// several entries or repeatedly; entries pass through unvalidated, as the CLI
+// owns the grammar.
+func WithEnv(entries ...string) Option {
+	return func(d *Definition) { d.env = append(d.env, entries...) }
+}
+
+// WithEnvFile reads environment variables from files inside the sandbox
+// (`--env-file`, added in sbx v0.39.0). Paths are read by the CLI on the host.
+//
+// A later file wins over an earlier one, and anything set by WithEnv wins over
+// every file — so the option order here does not matter, only the file order.
+// May be called once with several paths or repeatedly.
+func WithEnvFile(paths ...string) Option {
+	return func(d *Definition) { d.envFile = append(d.envFile, paths...) }
+}
