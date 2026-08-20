@@ -21,55 +21,51 @@ import (
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
 
-// Manifest is the identity block of a kit, as reported by
-// `sbx kit inspect --json`.
-//
-// Per ADR 0005 every field is present, strings and string slices are typed,
-// and struct-valued fields stay raw. Nine fields are only meaningful for
-// kind "sandbox" kits and are empty for a mixin.
-//
-// SchemaVersion "1" (legacy) kits decode the same way as "2": inspect --json's
-// output shape is identical, differing only in the SchemaVersion value itself.
-// Verified 2026-07-28 against sbx v0.37.0.
-type Manifest struct {
-	SchemaVersion string          `json:"schemaVersion"`
-	Kind          string          `json:"kind"` // "sandbox" or "mixin"
-	Name          string          `json:"name"`
-	Version       string          `json:"version"`
-	DisplayName   string          `json:"displayName,omitempty"`
-	Description   string          `json:"description,omitempty"`
-	SourceURL     string          `json:"sourceURL,omitempty"`
-	Binary        string          `json:"binary,omitempty"`
-	Template      string          `json:"template,omitempty"`
-	AIFilename    string          `json:"aiFilename,omitempty"`
-	RunOptions    []string        `json:"runOptions,omitempty"`
-	Resources     json.RawMessage `json:"resources,omitempty"`
-	Build         json.RawMessage `json:"build,omitempty"`
-	Security      json.RawMessage `json:"security,omitempty"`
-	Volumes       json.RawMessage `json:"volumes,omitempty"`
-}
-
 // Info is what `sbx kit inspect --json` reports about a kit.
 //
 // It is a report, not the kit: the files/ directory is packed into the
 // artifact by Pack but is not reported here.
 //
-// Struct-valued fields are left as raw JSON deliberately; see ADR 0005.
-// Unmarshal one into a shape of your own when you need it.
+// Per ADR 0005 every field is present, strings and string slices are typed,
+// and struct-valued fields stay raw. Unmarshal one into a shape of your own
+// when you need it.
+//
+// The shape follows the kit spec v2 document, flat and with no manifest
+// wrapper. A schemaVersion "1" kit is normalized up to it — the report reads
+// the same either way, apart from SchemaVersion itself and a deprecation
+// entry in Warnings naming each legacy key.
+//
+// Sandbox, and the Security block that pairs with it, are only meaningful for
+// kind "sandbox" kits and are empty for a mixin.
+//
+// Changed in sbx v0.39.0. Before it, inspect --json nested the identity
+// fields under "manifest" and reported the v1 key names ("caps",
+// "commands", "agentContext"), which is why the Manifest type and the Caps,
+// Commands, AgentContext and PublishedPorts fields are gone. There is no v2
+// equivalent for publishedPorts at all.
 type Info struct {
-	Manifest       Manifest        `json:"manifest"`
-	Extends        string          `json:"extends,omitempty"`
-	Mixins         []string        `json:"mixins,omitempty"`
-	Locked         []string        `json:"locked,omitempty"`
-	Licenses       []string        `json:"licenses,omitempty"`
-	AgentContext   string          `json:"agentContext,omitempty"`
-	Warnings       []string        `json:"warnings,omitempty"`
-	Requires       json.RawMessage `json:"requires,omitempty"`
-	PublishedPorts json.RawMessage `json:"publishedPorts,omitempty"`
-	Caps           json.RawMessage `json:"caps,omitempty"`
-	Credentials    json.RawMessage `json:"credentials,omitempty"`
-	Environment    json.RawMessage `json:"environment,omitempty"`
-	Commands       json.RawMessage `json:"commands,omitempty"`
+	SchemaVersion string   `json:"schemaVersion"`
+	Kind          string   `json:"kind"` // "sandbox" or "mixin"
+	Name          string   `json:"name"`
+	Version       string   `json:"version"`
+	DisplayName   string   `json:"displayName,omitempty"`
+	Description   string   `json:"description,omitempty"`
+	SourceURL     string   `json:"sourceURL,omitempty"`
+	Extends       string   `json:"extends,omitempty"`
+	Mixins        []string `json:"mixins,omitempty"`
+	Locked        []string `json:"locked,omitempty"`
+	Licenses      []string `json:"licenses,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
+
+	Sandbox           json.RawMessage `json:"sandbox,omitempty"`
+	Security          json.RawMessage `json:"security,omitempty"`
+	Requires          json.RawMessage `json:"requires,omitempty"`
+	AgentInstructions json.RawMessage `json:"agentInstructions,omitempty"`
+	Permissions       json.RawMessage `json:"permissions,omitempty"`
+	Credentials       json.RawMessage `json:"credentials,omitempty"`
+	Environment       json.RawMessage `json:"environment,omitempty"`
+	Volumes           json.RawMessage `json:"volumes,omitempty"`
+	Setup             json.RawMessage `json:"setup,omitempty"`
 }
 
 // Inspect loads a kit and reports its contents (`sbx kit inspect --json`).

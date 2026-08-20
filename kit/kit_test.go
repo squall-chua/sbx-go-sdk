@@ -38,18 +38,16 @@ func fakeClient(t *testing.T, argFile, stdout, stderr string, code int) *client.
 	return c
 }
 
+// Captured from `sbx kit inspect --json` at sbx v0.39.0, which flattened the
+// report onto the kit spec v2 shape. Trimmed to the fields the tests assert.
 const sampleJSON = `{
-  "manifest": {
-    "schemaVersion": "2",
-    "kind": "sandbox",
-    "name": "fullkit",
-    "version": "0.1.0",
-    "template": "alpine:3.20",
-    "runOptions": ["--foo"],
-    "resources": {"cpu": 2, "memoryMB": 2048}
-  },
+  "schemaVersion": "2",
+  "kind": "sandbox",
+  "name": "fullkit",
+  "version": "0.1.0",
   "mixins": ["ghcr.io/org/other:1.0"],
-  "caps": {"network": {"allow": ["api.example.com"]}},
+  "sandbox": {"image": "alpine:3.20", "resources": {"cpu": 2, "memory": "2048m"}},
+  "permissions": {"network": {"allow": ["api.example.com"]}},
   "warnings": ["field \"mixins\" is accepted but not yet implemented"]
 }`
 
@@ -67,24 +65,23 @@ func TestInspect_PassesJSONFlagAndRef(t *testing.T) {
 	require.Contains(t, string(args), "./mykit")
 }
 
-// Guards ADR 0005: every manifest field is present, strings typed and
-// structs raw. An earlier draft hand-picked six fields and dropped
-// "template", which real output contains for kind: sandbox kits.
+// Guards ADR 0005: every field is present, strings typed and structs raw.
+// An earlier draft hand-picked six fields and dropped the image, which real
+// output carries for kind: sandbox kits.
 func TestInspect_DecodesTypedStringsAndRawStructs(t *testing.T) {
 	c := fakeClient(t, "", sampleJSON, "", 0)
 
 	info, err := Inspect(context.Background(), c, "./mykit")
 	require.NoError(t, err)
 
-	require.Equal(t, "2", info.Manifest.SchemaVersion)
-	require.Equal(t, "sandbox", info.Manifest.Kind)
-	require.Equal(t, "fullkit", info.Manifest.Name)
-	require.Equal(t, "alpine:3.20", info.Manifest.Template)
-	require.Equal(t, []string{"--foo"}, info.Manifest.RunOptions)
-	require.JSONEq(t, `{"cpu":2,"memoryMB":2048}`, string(info.Manifest.Resources))
+	require.Equal(t, "2", info.SchemaVersion)
+	require.Equal(t, "sandbox", info.Kind)
+	require.Equal(t, "fullkit", info.Name)
+	require.Equal(t, "0.1.0", info.Version)
 
 	require.Equal(t, []string{"ghcr.io/org/other:1.0"}, info.Mixins)
-	require.JSONEq(t, `{"network":{"allow":["api.example.com"]}}`, string(info.Caps))
+	require.JSONEq(t, `{"image":"alpine:3.20","resources":{"cpu":2,"memory":"2048m"}}`, string(info.Sandbox))
+	require.JSONEq(t, `{"network":{"allow":["api.example.com"]}}`, string(info.Permissions))
 	require.Len(t, info.Warnings, 1)
 }
 
