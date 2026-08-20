@@ -19,14 +19,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
-	"github.com/squall-chua/sbx-go-sdk/internal/coltable"
 	"github.com/squall-chua/sbx-go-sdk/internal/oauthflow"
 )
 
 // Server is one row of `sbx mcp ls`.
+//
+// Changed in sbx v0.39.0. The listing used to be a NAME/TYPE/URL-COMMAND
+// table; it is now grouped by gateway and reports transport and readiness
+// instead of the endpoint. A server's URL or command line is no longer part
+// of the listing at all — read it from Inspect, which still prints both.
 type Server struct {
 	// Name is the registered name, the handle used everywhere else in this
 	// package and by sandbox.WithStaticMCP.
@@ -34,32 +39,39 @@ type Server struct {
 	// Type is "local" (a stdio command run on the host) or "remote" (an MCP
 	// endpoint reached over HTTP).
 	Type string
-	// Target is the endpoint URL for a remote server, or the command line for a
-	// local one. The CLI prints both under a single URL/COMMAND column, so they
-	// are not distinguishable here without reading Type.
-	Target string
+	// Transport is how the server is spoken to: "stdio" for a local server,
+	// "http" for a remote one.
+	Transport string
+	// Status is the readiness word the CLI prints, e.g. "ready". The glyph in
+	// front of it is dropped.
+	Status string
 }
 
-var listHeader = []string{"NAME", "TYPE", "URL/COMMAND"}
+// listRow matches one server row of `sbx mcp ls`. Rows are indented by two
+// spaces under a group header, and read (gutters collapsed):
+//
+//	probe-remote   remote http    ✓ ready
+//
+// Anchoring on the local/remote word is what separates a row from the group
+// header and the "N servers · …" footer, neither of which is indented but both
+// of which are otherwise free-form text this must not mistake for data.
+var listRow = regexp.MustCompile(`^\s+(\S+)\s+(local|remote)\s+(\S+)\s+\S*\s*(\S+)\s*$`)
 
 // List returns the registered MCP servers (`sbx mcp ls`). With none registered
-// the CLI prints prose instead of a table, which yields an empty slice and a
+// the CLI prints prose instead of a listing, which yields an empty slice and a
 // nil error.
 func List(ctx context.Context, c *client.Client) ([]Server, error) {
 	raw, err := capture(ctx, c, "mcp", "ls")
 	if err != nil {
 		return nil, err
 	}
-	rows, err := coltable.Parse(raw, listHeader)
-	if errors.Is(err, coltable.ErrNoHeader) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("mcp ls: %w: %w", client.ErrUnexpectedFormat, err)
-	}
-	out := make([]Server, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, Server{Name: r["NAME"], Type: r["TYPE"], Target: r["URL/COMMAND"]})
+	var out []Server
+	for _, ln := range strings.Split(raw, "\n") {
+		m := listRow.FindStringSubmatch(ln)
+		if m == nil {
+			continue
+		}
+		out = append(out, Server{Name: m[1], Type: m[2], Transport: m[3], Status: m[4]})
 	}
 	return out, nil
 }

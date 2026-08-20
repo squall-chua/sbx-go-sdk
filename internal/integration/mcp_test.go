@@ -33,7 +33,8 @@ func TestSmoke_MCPRegisterInspectRemove(t *testing.T) {
 	}
 	require.NotNil(t, found, "the registered server must appear in mcp ls")
 	require.Equal(t, "local", found.Type)
-	require.Equal(t, "echo hi", found.Target)
+	require.Equal(t, "stdio", found.Transport)
+	require.NotEmpty(t, found.Status)
 
 	d, err := mcp.Inspect(ctx, c, name)
 	require.NoError(t, err)

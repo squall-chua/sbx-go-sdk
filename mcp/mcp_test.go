@@ -29,11 +29,17 @@ func recordedArgs(t *testing.T, argFile string) string {
 	return string(b)
 }
 
-// Captured verbatim from `sbx mcp ls` at sbx v0.38.0 with one local and one
-// remote server registered.
-const lsOutput = `NAME                 TYPE     URL/COMMAND
-sdkprobe             local    echo hi
-sdkprobe2            remote   https://mcp.deepwiki.com/mcp`
+// Captured verbatim from `sbx mcp ls` at sbx v0.39.0 with two local and one
+// remote server registered. The group header and the footer must not be
+// mistaken for rows, and the columns are separated by a single space in
+// places, so a two-space gutter rule does not split them.
+const lsOutput = `LOCAL · managed by you · ✓ on
+
+  sdkprobe       local  stdio   ✓ ready
+  sdkprobe2      local  stdio   ✓ ready
+  sdkprobe3      remote http    ✓ ready
+
+3 servers · local only`
 
 func TestList(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
@@ -42,13 +48,14 @@ func TestList(t *testing.T) {
 	got, err := List(context.Background(), c)
 	require.NoError(t, err)
 	require.Equal(t, []Server{
-		{Name: "sdkprobe", Type: "local", Target: "echo hi"},
-		{Name: "sdkprobe2", Type: "remote", Target: "https://mcp.deepwiki.com/mcp"},
+		{Name: "sdkprobe", Type: "local", Transport: "stdio", Status: "ready"},
+		{Name: "sdkprobe2", Type: "local", Transport: "stdio", Status: "ready"},
+		{Name: "sdkprobe3", Type: "remote", Transport: "http", Status: "ready"},
 	}, got)
 	require.Contains(t, recordedArgs(t, argFile), "mcp ls")
 }
 
-// With nothing registered the CLI prints prose, not a table.
+// With nothing registered the CLI prints prose, not a listing.
 func TestList_EmptyIsNotAnError(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
 	c := stubClient(t, argFile, "No MCP servers registered")
