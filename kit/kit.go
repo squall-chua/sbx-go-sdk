@@ -7,7 +7,7 @@
 // base image instead. Attach a kit at creation with sandbox.WithKit, or
 // afterwards with (*sandbox.Sandbox).AddKit.
 //
-// All five functions shell out to the sbx binary. The daemon exposes no kit
+// Every function here shells out to the sbx binary. The daemon exposes no kit
 // REST endpoints (ADR 0001).
 package kit
 
@@ -160,15 +160,54 @@ func Pack(ctx context.Context, c *client.Client, dir, out string) error {
 // on its own, and if it succeeds but leaves a grandchild on the pipe past
 // the delay, this call surfaces that as an error rather than success.
 //
+// Every push also attaches a SLSA provenance attestation as an OCI referrer.
+// Without WithSign that attestation is unsigned; read it back with Provenance.
+//
 // Unverified: this path has never completed against a real registry, because
 // no registry was reachable when it was written.
-func Push(ctx context.Context, c *client.Client, dir, ref string) error {
+func Push(ctx context.Context, c *client.Client, dir, ref string, opts ...PushOption) error {
+	var cfg pushConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	r, err := c.Runner()
 	if err != nil {
 		return err
 	}
-	_, err = r.Capture(ctx, nil, "kit", "push", dir, ref)
+	args := []string{"kit", "push", dir, ref}
+	args = append(args, cfg.args()...)
+	_, err = r.Capture(ctx, nil, args...)
 	return err
+}
+
+type pushConfig struct {
+	sign bool
+	signConfig
+}
+
+// PushOption configures Push.
+type PushOption func(*pushConfig)
+
+// WithSign signs the pushed kit and attaches the signature as an OCI referrer
+// (`--sign`), and signs the provenance attestation as a DSSE in-toto
+// attestation with the same identity or key.
+//
+// It takes the same options as Sign: WithKey for key-based signing, or nothing
+// for keyless. Unverified, like the rest of Push — no registry was reachable.
+func WithSign(opts ...SignOption) PushOption {
+	return func(c *pushConfig) {
+		c.sign = true
+		for _, o := range opts {
+			o(&c.signConfig)
+		}
+	}
+}
+
+func (c *pushConfig) args() []string {
+	if !c.sign {
+		return nil
+	}
+	return append([]string{"--sign"}, c.signConfig.args()...)
 }
 
 // Pull fetches a kit artifact from an OCI registry and writes its layer

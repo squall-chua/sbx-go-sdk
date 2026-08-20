@@ -24,6 +24,16 @@ var (
 	// malformed spec.yaml or a source that kit.allowedSources forbids; the
 	// wrapped message carries which. Verified 2026-07-27 against sbx v0.37.0.
 	ErrKitRejected = errors.New("kit rejected by sbx")
+
+	// ErrSignatureInvalid reports that `sbx kit verify` found a signature that
+	// does not check out: absent, made by an identity or key other than the
+	// one demanded, or over content that has since changed. It is an expected
+	// outcome to branch on, not a malfunction.
+	//
+	// A misuse of the command — verifying keylessly with no identity given, a
+	// missing file — is NOT this error; those stay a plain *CLIError, so a
+	// caller cannot mistake "I asked wrongly" for "this kit is not trustworthy".
+	ErrSignatureInvalid = errors.New("kit signature not verified")
 )
 
 // APIError is a structured non-2xx response from the daemon REST API.
