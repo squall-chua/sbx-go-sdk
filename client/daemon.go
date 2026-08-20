@@ -292,17 +292,23 @@ func (d *Diagnosis) OK() bool { return d.Summary.Fail == 0 }
 // `sbx diagnose --upload` sends the report to Docker support. It is deliberately
 // not wrapped — shipping host diagnostics to a third party should be an explicit
 // act, not a side effect of a library call.
+//
+// A failing check is a result, not an error: the CLI exits non-zero whenever
+// any check fails, and still prints the whole report. So a report that decodes
+// is returned with a nil error however the CLI exited, and the caller reads OK
+// or Summary.Fail to find out. The exit code only surfaces when there is no
+// report to return — a missing binary, or output that is not the JSON report.
 func (c *Client) Diagnose(ctx context.Context) (*Diagnosis, error) {
 	r, err := c.runnerOrErr()
 	if err != nil {
 		return nil, err
 	}
-	out, err := r.Capture(ctx, nil, "diagnose", "-o", "json")
-	if err != nil {
-		return nil, err
-	}
+	out, runErr := r.Capture(ctx, nil, "diagnose", "-o", "json")
 	var d Diagnosis
 	if err := json.Unmarshal([]byte(out), &d); err != nil {
+		if runErr != nil {
+			return nil, runErr
+		}
 		return nil, fmt.Errorf("diagnose: %w: %w", ErrUnexpectedFormat, err)
 	}
 	return &d, nil

@@ -116,6 +116,46 @@ func TestDiagnose_FailCountDrivesOK(t *testing.T) {
 	require.False(t, d.OK())
 }
 
+// `sbx diagnose -o json` exits 1 whenever a check fails, and still prints the
+// whole report. Reporting a broken host is the job, so the report must survive
+// the exit code — the shape a caller most needs is exactly the one the CLI
+// flags as an error.
+func TestDiagnose_FailingCheckStillReturnsTheReport(t *testing.T) {
+	const out = `{"version":"1.0","checks":[
+	  {"name":"Virtualization","status":"fail","message":"not accessible","detail":"/dev/kvm: permission denied","hint":"access to /dev/kvm is normally granted through group membership"}],
+	  "summary":{"pass":0,"warn":0,"fail":1,"skip":0}}`
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	script := "#!/bin/sh\ncat <<'EOF'\n" + out + "\nEOF\nexit 1\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	d, err := c.Diagnose(context.Background())
+	require.NoError(t, err, "a failing check is a result, not an error")
+	require.False(t, d.OK())
+	require.Equal(t, "/dev/kvm: permission denied", d.Checks[0].Detail)
+}
+
+// Without a report to return, the exit code is all there is, so it must not be
+// swallowed as a format error.
+func TestDiagnose_NonZeroExitWithoutJSONSurfacesTheExitError(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "sbx")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho 'ERROR: no such command' >&2\nexit 1\n"), 0o755))
+
+	c, err := New(context.Background(), WithBinaryPath(bin))
+	require.NoError(t, err)
+
+	_, err = c.Diagnose(context.Background())
+	require.Error(t, err)
+	var cliErr *CLIError
+	require.ErrorAs(t, err, &cliErr)
+	require.Equal(t, 1, cliErr.ExitCode)
+}
+
 // Captured verbatim from a v0.38.0 daemon on a host with no SaaS entitlement.
 func TestMCPGatewayMode(t *testing.T) {
 	sock := stub(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
