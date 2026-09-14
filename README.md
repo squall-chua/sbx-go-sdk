@@ -1,7 +1,7 @@
 # sbx-go-sdk
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev/)
-[![sbx v0.39.0](https://img.shields.io/badge/sbx-v0.39.0-2496ED?logo=docker)](https://docs.docker.com/)
+[![sbx v0.42.1](https://img.shields.io/badge/sbx-v0.42.1-2496ED?logo=docker)](https://docs.docker.com/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/squall-chua/sbx-go-sdk.svg)](https://pkg.go.dev/github.com/squall-chua/sbx-go-sdk)
 
 A Go SDK for automating **Docker Sandboxes** (`sbx`) — isolated micro-VM environments
@@ -153,7 +153,7 @@ sbx login
 **4. Verify** the CLI and daemon are healthy:
 
 ```bash
-sbx version    # CLI + daemon version (target this SDK against v0.39.0)
+sbx version    # CLI + daemon version (target this SDK against v0.42.1)
 sbx diagnose   # diagnose install / daemon issues
 sbx ls         # list sandboxes (an empty list means the daemon is reachable)
 ```
@@ -175,7 +175,7 @@ Requires:
   [Set up `sbx`](#set-up-sbx-prerequisite) above. The SDK shells out to it for create/run/cp/etc.
 - A reachable **`sandboxd`** — pass `client.WithAutoStart()` and the SDK will start it for you.
 
-This SDK is built and live-verified against **`sbx` / `sandboxd` v0.39.0** (daemon API `0.26.0`);
+This SDK is built and live-verified against **`sbx` / `sandboxd` v0.42.1** (daemon API `0.28.0`);
 see [Version alignment](#version-alignment) for how it tracks newer `sbx` releases.
 
 ## Quick start
@@ -334,7 +334,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Store a custom host secret | `secret set-custom` | v0.32.0 | `secret.SetCustom` | ⚠️ the value passes as a CLI argument — visible in the host process list |
 | Host wildcards on a custom secret | `--host` | v0.33.0 | `secret.SetCustom` | ✅ the pattern passes straight through |
 | Import credentials from host env | `secret import` | v0.35.0 | `secret.Import`, `secret.ImportAll` | ✅ |
-| List / remove | `secret ls`, `secret rm` | v0.32.0 | `secret.List`, `ListRaw`, `Remove`, `RemoveCustom` | ⚠️ `List` parses the CLI table — no `--json` upstream |
+| List / remove | `secret ls`, `secret rm` | v0.32.0 | `secret.List`, `ListRaw`, `Remove`, `RemoveCustom` | ✅ `List` reads `secret ls --json` (v0.42.0); `ListRaw` returns the text |
 | Store an OAuth token | `secret set --oauth` | v0.37.0 | `secret.SetOAuth` | ⚠️ hands you the consent URL and blocks; `openai`/global only |
 | Resolve a secret on demand | `set --ref/--command` | v0.39.0 | `secret.FromRef`, `FromCommand`, `WithRefresh`, `WithoutVerify` | ✅ `--ref` is shape-only here (no `op` binary, no AWS creds); `--command` is verified live |
 | Global-by-default scope; `--sandbox` to narrow | `secret set/rm/ls` | v0.38.0 | whole `secret` package | ✅ the SDK emits the new spelling; `-g` and a positional sandbox name still work but print a deprecation warning into the parsed output |
@@ -950,7 +950,7 @@ _ = mcp.AddRemote(ctx, c, "deepwiki", "https://mcp.deepwiki.com/mcp")
 _ = mcp.AddLocal(ctx, c, "github", "npx", []string{"@modelcontextprotocol/server-github"})
 
 servers, _ := mcp.List(ctx, c)              // [{Name, Type: local|remote, Transport, Status}]
-d, _ := mcp.Inspect(ctx, c, "deepwiki")     // d.URL, d.Transport, d.RequiresOAuth, d.Fields
+d, _ := mcp.Inspect(ctx, c, "deepwiki")     // d.URL, d.Transport, d.RequiresOAuth, d.Issuer
 
 // Fix the set at creation…
 sb, _ := sandbox.Create(ctx, c,
@@ -1050,12 +1050,12 @@ source. Invoke it with `/sbx-go-sdk`.
 ## Version alignment
 
 This SDK is **pinned to a tested `sbx` / `sandboxd` range**. It is currently built and
-live-verified against **`sbx` v0.39.0** with daemon REST **`api_version 0.26.0`**. Both values
+live-verified against **`sbx` v0.42.1** with daemon REST **`api_version 0.28.0`**. Both values
 are exported constants you can read at runtime:
 
 ```go
-client.ClientVersion    // "v0.39.0" — the sbx/daemon version the SDK was built against
-client.TestedAPIVersion // "0.26.0"  — the daemon REST api_version its wire types were generated from
+client.ClientVersion    // "v0.42.1" — the sbx/daemon version the SDK was built against
+client.TestedAPIVersion // "0.28.0"  — the daemon REST api_version its wire types were generated from
 ```
 
 **Why a pin exists.** The [transport is hybrid](#how-it-works): REST wire structs are generated
@@ -1105,7 +1105,7 @@ contract test is what tells maintainers a re-sync is due.
 
 ## Known deviations & limitations
 
-Verified live against `sandboxd` v0.39.0:
+Verified live against `sandboxd` v0.42.1:
 
 - **`CopyFrom` is REST and auto-starts the sandbox** — `GET /sandbox/{name}/files?path=…` works as
   of v0.37.0 (it was `404` through v0.35.0). `CopyFrom` starts a stopped sandbox first, matching
@@ -1115,7 +1115,7 @@ Verified live against `sandboxd` v0.39.0:
 - **`policy.List` and `policy.ProfileNames` are REST** — `GET /policy/network/rules` works as of
   v0.37.0 and always sends `type=all` (omitting it silently drops filesystem rules with no error).
   A shape change yields `client.ErrUnexpectedFormat`; use `policy.ListRaw` / `policy.Profiles` for
-  the human text. `secret.List` still parses the CLI table (no `--json` upstream).
+  the human text. `secret.List` reads `secret ls --json` since v0.42.0.
 - **Profiles are empty without remote governance.** `policy.ProfileNames` returns names only —
   that is the daemon's own response shape, not a simplification here — and an ungoverned host has
   none. Toggling the local `feature.profiles` setting does not change that. `policy.Profiles` is
@@ -1130,7 +1130,8 @@ Verified live against `sandboxd` v0.39.0:
   and the CLI would otherwise block on an interactive stop prompt.
 - **`UnpublishPort` is REST** — it first sends `GET /sandbox/{name}/ports` to resolve which keys
   match the spec, then `POST /sandbox/{name}/ports/unpublish` (body: a bare `[]PortKey` array);
-  works as of v0.37.0.
+  works as of v0.37.0. Since v0.42.0 a publish that names no protocol is `tcp4`, one IPv4 key, so
+  a spec ending in `/tcp` does not match it — leave the protocol off.
 - **`secret.SetCustom` is experimental** and exposes the value via the process list. A resolver
   (`FromRef` / `FromCommand`) keeps the secret out of it, but `FromCommand`'s command text is
   itself stored and displayed.
@@ -1140,14 +1141,13 @@ Verified live against `sandboxd` v0.39.0:
   had reachable. A verification failure on the OCI path may therefore surface as a plain
   `*client.CLIError` rather than `client.ErrSignatureInvalid`: an error either way, never a false
   pass.
-- **`mcp.List` and `mcp.Inspect` parse CLI output** — neither subcommand has a `--json` flag
-  upstream. `mcp.AuthStatus` and `mcp.AuthRemove` do get JSON (`--format json`). `sbx mcp auth
-  <name>` (interactive browser OAuth) is not wrapped: register with `mcp.WithSkipAuth()`,
-  authorize out of band, then confirm with `mcp.AuthStatus`.
-- **`mcp.List` no longer reports a server's URL or command** — v0.39.0 replaced the
-  NAME/TYPE/URL-COMMAND table with a listing grouped by gateway, which prints transport and
-  readiness instead of the endpoint. `mcp.Server` follows it: `Target` is gone, `Transport` and
-  `Status` take its place. Read the endpoint from `mcp.Inspect`, which still prints both.
+- **`mcp.List` and `mcp.Inspect` read `--json`**, which upstream added in v0.42.0;
+  `mcp.AuthStatus` and `mcp.AuthRemove` use `--format json`. `mcp.Details.Fields` is deprecated —
+  every field is now named. Register an OAuth server from code with `mcp.WithSkipAuth()`: it
+  lists as `needs-auth` until `mcp.Authorize` runs, and `mcp.AuthStatus` confirms it.
+- **`mcp.List` does not report a server's URL or command** — v0.39.0 dropped the endpoint from
+  the listing, and the v0.42.0 JSON does not carry it either. `mcp.Server` has `Transport` and
+  `Status` instead. Read the endpoint from `mcp.Inspect`.
 - **`sbx mcp rm` on an unregistered name exits 0** — so `mcp.Remove` cannot tell you whether it
   actually removed anything. Call `mcp.List` first if that distinction matters.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the

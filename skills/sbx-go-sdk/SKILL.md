@@ -73,7 +73,7 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 (both v0.38.0), `WithoutSharedSkills`, `WithEnv`/`WithEnvFile` (v0.39.0). Remove option:
 `WithForce` (removes an active session).
 
-## Gotchas (verified against sandboxd v0.39.0)
+## Gotchas (verified against sandboxd v0.42.1)
 
 - **Exec needs a running VM.** Pass `exec.WithAutoStart()`, or you get
   `client.ErrSandboxNotRunning`. `Create` does not guarantee the VM is up.
@@ -84,8 +84,10 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   never fail the core CPU/mem snapshot.
 - **`SaveTemplate` requires a stopped sandbox** — call `sb.Stop(ctx)` first, or it fails on a
   non-interactive stop prompt.
-- **`secret.List` → `*Secrets`** still parses the CLI table (no `--json` upstream); a format
-  change returns `client.ErrUnexpectedFormat`. Use `secret.ListRaw` for raw text. `policy.Profiles`
+- **Ports publish as `tcp4` by default** (v0.42.0), one IPv4 key. `UnpublishPort("8080/tcp")`
+  will not match such a publish — leave the protocol off the spec.
+- **`secret.List` → `*Secrets`** reads `secret ls --json` (v0.42.0); a format change returns
+  `client.ErrUnexpectedFormat`. Use `secret.ListRaw` for raw text. `policy.Profiles`
   keeps its text signature (deprecated); `policy.ProfileNames` is the typed REST call.
 - **The OAuth calls block on a human.** `secret.SetOAuth` and `mcp.Authorize` print nothing —
   they invoke your `onURL` callback with the consent URL, then wait on a loopback callback until
@@ -94,13 +96,13 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   global, otherwise a sandbox name), but a *registry* credential's default scope is now the new
   `secret.HostOnlyScope` — host-side pulls only, injected into no sandbox. `SetRegistry(…, "", …)`
   still means "every sandbox"; pass `secret.WithHostOnly()` for the new one.
-- **`mcp.List`/`mcp.Inspect` parse CLI output** (no `--json` upstream); `mcp.AuthStatus`/`AuthRemove`
-  do get `--format json`. `sbx mcp auth <name>` (interactive OAuth) is not wrapped — register with
-  `mcp.WithSkipAuth()`, authorize out of band, confirm with `mcp.AuthStatus`. `mcp.Remove` on an
-  unregistered name exits 0, so it cannot report whether anything was removed.
-- **`mcp.List` gives no URL or command** (changed in v0.39.0). A row is
-  `{Name, Type, Transport, Status}` — the listing itself stopped carrying the endpoint. Read it
-  from `mcp.Inspect`, which still prints `URL` for a remote server and `Command` for a local one.
+- **`mcp.List`/`mcp.Inspect` read `--json`** (v0.42.0); `mcp.AuthStatus`/`AuthRemove` use
+  `--format json`. `mcp.Details.Fields` is deprecated — use the named fields. Register an OAuth
+  server from code with `mcp.WithSkipAuth()`; it lists as `needs-auth` until `mcp.Authorize` runs.
+  `mcp.Remove` on an unregistered name exits 0, so it cannot report whether anything was removed.
+- **`mcp.List` gives no URL or command** (since v0.39.0). A row is
+  `{Name, Type, Transport, Status}`. Read the endpoint from `mcp.Inspect`: `URL` for a remote
+  server, `Command` for a local one.
 - **`kit.Info` is flat** (changed in v0.39.0). `kit.Manifest` is gone: use `info.Name`,
   `info.Kind`, `info.SchemaVersion`. The policy blocks follow kit spec v2 — `Permissions` (was
   `Caps`), `Setup` (was `Commands`), `AgentInstructions` (was `AgentContext`). A v1 kit reads the
