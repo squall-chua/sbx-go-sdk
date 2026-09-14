@@ -2,12 +2,12 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
-	"github.com/squall-chua/sbx-go-sdk/internal/coltable"
 )
 
 type pruneConfig struct {
@@ -30,7 +30,6 @@ func WithStoppedLongerThan(d string) PruneOption {
 }
 
 var (
-	pruneHeader  = []string{"SANDBOX", "AGENT", "STOPPED", "WORKSPACE"}
 	prunedLine   = regexp.MustCompile(`^Sandbox '(.+)' removed$`)
 	pruneNothing = "No stopped sandboxes to prune."
 )
@@ -47,6 +46,9 @@ var (
 // as one holding an open SSH connection. Pair it with WithDryRun first if that
 // matters.
 //
+// Since sbx v0.42.0, removing a sandbox also deletes its sandbox-scoped
+// secrets.
+//
 // A running sandbox is never a candidate, whatever the options.
 func Prune(ctx context.Context, c *client.Client, opts ...PruneOption) ([]string, error) {
 	cfg := &pruneConfig{}
@@ -55,7 +57,8 @@ func Prune(ctx context.Context, c *client.Client, opts ...PruneOption) ([]string
 	}
 	args := []string{"prune"}
 	if cfg.dryRun {
-		args = append(args, "--dry-run")
+		// The CLI accepts --json only on a dry run; a real prune refuses it.
+		args = append(args, "--dry-run", "--json")
 	} else {
 		args = append(args, "--force")
 	}
@@ -71,25 +74,33 @@ func Prune(ctx context.Context, c *client.Client, opts ...PruneOption) ([]string
 	if err != nil {
 		return nil, err
 	}
-	if strings.Contains(out, pruneNothing) {
-		return []string{}, nil
-	}
 	if cfg.dryRun {
 		return pruneCandidates(out)
+	}
+	if strings.Contains(out, pruneNothing) {
+		return []string{}, nil
 	}
 	return pruneRemoved(out), nil
 }
 
-// pruneCandidates reads the SANDBOX column of the table --dry-run prints under
-// its "Would remove N stopped sandbox(es):" line.
+// pruneCandidates reads the would_remove list of `prune --dry-run --json`.
+// Names under skipped_unknown_stop are skipped by the CLI, so they are not
+// candidates.
 func pruneCandidates(out string) ([]string, error) {
-	rows, err := coltable.Parse(out, pruneHeader)
-	if err != nil {
+	var v struct {
+		WouldRemove *[]struct {
+			Name string `json:"name"`
+		} `json:"would_remove"`
+	}
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
 		return nil, fmt.Errorf("prune --dry-run: %w: %w", client.ErrUnexpectedFormat, err)
 	}
-	names := make([]string, 0, len(rows))
-	for _, row := range rows {
-		names = append(names, row["SANDBOX"])
+	if v.WouldRemove == nil {
+		return nil, fmt.Errorf("prune --dry-run: %w: no \"would_remove\" key in output", client.ErrUnexpectedFormat)
+	}
+	names := make([]string, 0, len(*v.WouldRemove))
+	for _, s := range *v.WouldRemove {
+		names = append(names, s.Name)
 	}
 	return names, nil
 }
