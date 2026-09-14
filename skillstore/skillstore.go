@@ -13,8 +13,8 @@ package skillstore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
@@ -64,38 +64,31 @@ type Store struct {
 	Skills []string
 }
 
-const storePathPrefix = "Skills store: "
-
-// List reports the shared store's path and contents (`sbx skills ls`, added in
-// sbx v0.39.0).
+// List reports the shared store's path and contents (`sbx skills ls --json`;
+// the command arrived in sbx v0.39.0, its --json in v0.42.0).
 //
 // An empty store is not an error: Skills comes back empty and Path is still
 // reported, since the directory exists whether or not anything has been
-// imported into it.
+// imported into it. Output with no store path is client.ErrUnexpectedFormat.
 func List(ctx context.Context, c *client.Client) (Store, error) {
 	r, err := c.Runner()
 	if err != nil {
 		return Store{}, err
 	}
-	out, err := r.Capture(ctx, nil, "skills", "ls")
+	out, err := r.Capture(ctx, nil, "skills", "ls", "--json")
 	if err != nil {
 		return Store{}, err
 	}
 
-	var st Store
-	for _, ln := range strings.Split(out, "\n") {
-		ln = strings.TrimSpace(ln)
-		switch {
-		case ln == "":
-		case strings.HasPrefix(ln, storePathPrefix):
-			st.Path = strings.TrimSpace(strings.TrimPrefix(ln, storePathPrefix))
-		default:
-			st.Skills = append(st.Skills, ln)
-		}
+	var v struct {
+		Store  string   `json:"store"`
+		Skills []string `json:"skills"`
 	}
-	if st.Path == "" {
-		return Store{}, fmt.Errorf("skills ls: %w: no %q line in output",
-			client.ErrUnexpectedFormat, strings.TrimSpace(storePathPrefix))
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		return Store{}, fmt.Errorf("skills ls: %w: %w", client.ErrUnexpectedFormat, err)
 	}
-	return st, nil
+	if v.Store == "" {
+		return Store{}, fmt.Errorf("skills ls: %w: no \"store\" path in output", client.ErrUnexpectedFormat)
+	}
+	return Store{Path: v.Store, Skills: v.Skills}, nil
 }
