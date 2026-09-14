@@ -19,19 +19,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/squall-chua/sbx-go-sdk/internal/oauthflow"
 )
 
-// Server is one row of `sbx mcp ls`.
+// Server is one server of `sbx mcp ls`.
 //
-// Changed in sbx v0.39.0. The listing used to be a NAME/TYPE/URL-COMMAND
-// table; it is now grouped by gateway and reports transport and readiness
-// instead of the endpoint. A server's URL or command line is no longer part
-// of the listing at all — read it from Inspect, which still prints both.
+// The listing carries no endpoint: a server's URL or command line is read from
+// Inspect.
 type Server struct {
 	// Name is the registered name, the handle used everywhere else in this
 	// package and by sandbox.WithStaticMCP.
@@ -42,45 +39,47 @@ type Server struct {
 	// Transport is how the server is spoken to: "stdio" for a local server,
 	// "http" for a remote one.
 	Transport string
-	// Status is the readiness word the CLI prints, e.g. "ready". The glyph in
-	// front of it is dropped.
+	// Status is the readiness word the CLI reports, e.g. "ready".
 	Status string
 }
 
-// listRow matches one server row of `sbx mcp ls`. Rows are indented by two
-// spaces under a group header, and read (gutters collapsed):
-//
-//	probe-remote   remote http    ✓ ready
-//
-// Anchoring on the local/remote word is what separates a row from the group
-// header and the "N servers · …" footer, neither of which is indented but both
-// of which are otherwise free-form text this must not mistake for data.
-var listRow = regexp.MustCompile(`^\s+(\S+)\s+(local|remote)\s+(\S+)\s+\S*\s*(\S+)\s*$`)
-
-// List returns the registered MCP servers (`sbx mcp ls`). With none registered
-// the CLI prints prose instead of a listing, which yields an empty slice and a
-// nil error.
+// List returns the registered MCP servers (`sbx mcp ls --json`, added in sbx
+// v0.42.0). None registered is an empty slice and a nil error. Output with no
+// "servers" key is client.ErrUnexpectedFormat, never an empty list.
 func List(ctx context.Context, c *client.Client) ([]Server, error) {
-	raw, err := capture(ctx, c, "mcp", "ls")
+	raw, err := capture(ctx, c, "mcp", "ls", "--json")
 	if err != nil {
 		return nil, err
 	}
-	var out []Server
-	for _, ln := range strings.Split(raw, "\n") {
-		m := listRow.FindStringSubmatch(ln)
-		if m == nil {
-			continue
-		}
-		out = append(out, Server{Name: m[1], Type: m[2], Transport: m[3], Status: m[4]})
+	var v struct {
+		Servers *[]struct {
+			Name      string `json:"name"`
+			Type      string `json:"type"`
+			Transport string `json:"transport"`
+			Status    string `json:"status"`
+		} `json:"servers"`
+	}
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return nil, fmt.Errorf("mcp ls: %w: %w", client.ErrUnexpectedFormat, err)
+	}
+	if v.Servers == nil {
+		return nil, fmt.Errorf("mcp ls: %w: no \"servers\" key in output", client.ErrUnexpectedFormat)
+	}
+	out := []Server{}
+	for _, s := range *v.Servers {
+		out = append(out, Server{
+			Name: s.Name,
+			Type: s.Type,
+			// The CLI reports "local stdio" / "remote http"; the first word is Type.
+			Transport: strings.TrimPrefix(s.Transport, s.Type+" "),
+			Status:    s.Status,
+		})
 	}
 	return out, nil
 }
 
-// Details is what `sbx mcp inspect` reports about one server.
-//
-// The CLI prints a "Label: value" block whose lines vary by server type, so a
-// field left empty simply was not printed. Fields is the whole block keyed by
-// label, for anything this struct does not name.
+// Details is what `sbx mcp inspect` reports about one server. A field that does
+// not apply to the server's type is empty.
 type Details struct {
 	Name string
 	Type string // "local" or "remote"
@@ -88,64 +87,93 @@ type Details struct {
 	URL       string // remote: the endpoint
 	Transport string // remote: e.g. "streamable-http"
 
-	Command  string // local: the command line as registered
+	Command  string // local: the command line as registered, joined by spaces
 	Resolved string // local: the absolute executable the command resolved to
 
 	Image    string // registry-sourced servers: the OCI image
 	Registry string // registry-sourced servers: the registry URL
 
-	// RequiresOAuth reports the "OAuth: required" line. Authorize such a server
-	// with `sbx mcp auth <name>`, which is interactive and not wrapped here.
-	// AuthStatus reports whether that has happened.
+	// RequiresOAuth reports that the server needs OAuth. Authorize such a
+	// server with Authorize; AuthStatus reports whether that has happened.
 	RequiresOAuth bool
 
-	// Issuer and Registration are the indented lines the CLI prints under
-	// "OAuth: required": the authorization server and its dynamic-client
-	// registration endpoint. Registration is empty when the server advertises
-	// none, which is exactly when WithClientID becomes mandatory.
+	// Issuer and Registration are the server's authorization server and its
+	// dynamic-client registration endpoint. Registration is empty when the
+	// server advertises none, which is exactly when WithClientID becomes
+	// mandatory.
 	Issuer       string
 	Registration string
 
-	// Fields is every printed label mapped to its value, including the ones
-	// above. Read it for a label a newer sbx adds.
+	// Fields maps the labels the text `sbx mcp inspect` printed ("Name", "URL",
+	// "OAuth", …) to their values, for each field above that is set.
+	//
+	// Deprecated: Inspect reads `mcp inspect --json` since sbx v0.42.0, and
+	// every field it reports has a named field above. Fields is rebuilt from
+	// them and will not grow.
 	Fields map[string]string
 }
 
-// Inspect returns the details of one registered server (`sbx mcp inspect NAME`).
-// An unregistered name exits non-zero and surfaces as the raw *client.CLIError.
+// Inspect returns the details of one registered server (`sbx mcp inspect NAME
+// --json`). An unregistered name exits non-zero and surfaces as the raw
+// *client.CLIError.
 func Inspect(ctx context.Context, c *client.Client, name string) (*Details, error) {
 	if name == "" {
 		return nil, errors.New("mcp inspect: name must not be empty")
 	}
-	raw, err := capture(ctx, c, "mcp", "inspect", name)
+	raw, err := capture(ctx, c, "mcp", "inspect", name, "--json")
 	if err != nil {
 		return nil, err
 	}
-	fields := map[string]string{}
-	for _, ln := range strings.Split(raw, "\n") {
-		label, value, ok := strings.Cut(strings.TrimSpace(ln), ":")
-		if !ok || label == "" {
-			continue
+	var v struct {
+		Name            string   `json:"name"`
+		Type            string   `json:"type"`
+		URL             string   `json:"url"`
+		Command         []string `json:"command"`
+		Image           string   `json:"image"`
+		RegistryURL     string   `json:"registry_url"`
+		RemoteTransport string   `json:"remote_transport"`
+		RequiresOAuth   bool     `json:"requires_oauth"`
+		OAuthProviders  []struct {
+			Issuer               string `json:"issuer"`
+			RegistrationEndpoint string `json:"registration_endpoint"`
+		} `json:"oauth_providers"`
+		ResolvedCommand string `json:"resolved_command"`
+	}
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return nil, fmt.Errorf("mcp inspect %q: %w: %w", name, client.ErrUnexpectedFormat, err)
+	}
+	if v.Name == "" {
+		return nil, fmt.Errorf("mcp inspect %q: %w: no name in output", name, client.ErrUnexpectedFormat)
+	}
+	d := &Details{
+		Name:          v.Name,
+		Type:          v.Type,
+		URL:           v.URL,
+		Transport:     v.RemoteTransport,
+		Command:       strings.Join(v.Command, " "),
+		Resolved:      v.ResolvedCommand,
+		Image:         v.Image,
+		Registry:      v.RegistryURL,
+		RequiresOAuth: v.RequiresOAuth,
+	}
+	if len(v.OAuthProviders) > 0 {
+		d.Issuer = v.OAuthProviders[0].Issuer
+		d.Registration = v.OAuthProviders[0].RegistrationEndpoint
+	}
+	d.Fields = map[string]string{}
+	for label, val := range map[string]string{
+		"Name": d.Name, "Type": d.Type, "URL": d.URL, "Transport": d.Transport,
+		"Command": d.Command, "Resolved": d.Resolved, "Image": d.Image,
+		"Registry": d.Registry, "Issuer": d.Issuer, "Registration": d.Registration,
+	} {
+		if val != "" {
+			d.Fields[label] = val
 		}
-		fields[label] = strings.TrimSpace(value)
 	}
-	if len(fields) == 0 {
-		return nil, fmt.Errorf("mcp inspect %q: %w: no labelled lines in output", name, client.ErrUnexpectedFormat)
+	if d.RequiresOAuth {
+		d.Fields["OAuth"] = "required"
 	}
-	return &Details{
-		Name:          fields["Name"],
-		Type:          fields["Type"],
-		URL:           fields["URL"],
-		Transport:     fields["Transport"],
-		Command:       fields["Command"],
-		Resolved:      fields["Resolved"],
-		Image:         fields["Image"],
-		Registry:      fields["Registry"],
-		RequiresOAuth: fields["OAuth"] == "required",
-		Issuer:        fields["Issuer"],
-		Registration:  fields["Registration"],
-		Fields:        fields,
-	}, nil
+	return d, nil
 }
 
 type addConfig struct {
@@ -166,7 +194,7 @@ type AddOption func(*addConfig)
 func WithLocalRun() AddOption { return func(c *addConfig) { c.local = true } }
 
 // WithSkipAuth registers an OAuth server without starting the hosted OAuth flow
-// (`--skip_auth`). That flow opens a browser and waits, so a non-interactive
+// (`--skip-auth`). That flow opens a browser and waits, so a non-interactive
 // caller registering an OAuth server wants this; authorize separately with
 // `sbx mcp auth <name>` afterwards.
 func WithSkipAuth() AddOption { return func(c *addConfig) { c.skipAuth = true } }
@@ -211,7 +239,8 @@ func (cfg *addConfig) args() []string {
 		a = append(a, "--local")
 	}
 	if cfg.skipAuth {
-		a = append(a, "--skip_auth")
+		// Not --skip_auth: sbx v0.42.0 deprecated it and prints a warning.
+		a = append(a, "--skip-auth")
 	}
 	if cfg.skipSSRFCheck {
 		a = append(a, "--skip-ssrf-check")
