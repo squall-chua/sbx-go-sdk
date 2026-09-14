@@ -13,11 +13,14 @@ import (
 
 // stdinRecordingClient returns a client whose fake sbx records its args to
 // argFile and its stdin to stdinFile, and answers a `secret ls` invocation
-// with lsOutput — the fixture SetToken, SetRegistry and Import list before
-// invoking the CLI, to check for an existing entry. Pass "" for lsOutput when
-// the scope should appear empty.
+// with lsOutput — the `secret ls --json` fixture SetToken, SetRegistry and
+// Import list before invoking the CLI, to check for an existing entry. Pass ""
+// for lsOutput when the scope should appear empty.
 func stdinRecordingClient(t *testing.T, argFile, stdinFile, lsOutput string) *client.Client {
 	t.Helper()
+	if lsOutput == "" {
+		lsOutput = `{"secrets": [], "custom_secrets": []}`
+	}
 	dir := t.TempDir()
 	lsFile := filepath.Join(dir, "ls_output.txt")
 	require.NoError(t, os.WriteFile(lsFile, []byte(lsOutput), 0o644))
@@ -171,14 +174,17 @@ func TestSetRegistry_RejectsEmptyHostOrPassword(t *testing.T) {
 	require.Error(t, SetRegistry(ctx, c, "", RegistryCredential{Host: "ghcr.io"}))
 }
 
-const secretLsServiceOpenAI = "SCOPE       TYPE     NAME    SECRET\n" +
-	"(global)    service  openai  testte**\n"
+// lsFixture is a `secret ls --json` answer holding one stored secret.
+func lsFixture(scope, typ, name string) string {
+	return `{"secrets": [{"scope": "` + scope + `", "type": "` + typ + `", "name": "` + name +
+		`", "secret": "te**"}], "custom_secrets": []}`
+}
 
-const secretLsServiceGithub = "SCOPE       TYPE     NAME    SECRET\n" +
-	"(global)    service  github  ghp_te**\n"
-
-const secretLsRegistryGHCR = "SCOPE       TYPE      NAME     SECRET\n" +
-	"(global)    registry  ghcr.io  ghp_te**\n"
+var (
+	secretLsServiceOpenAI = lsFixture("global", "service", "openai")
+	secretLsServiceGithub = lsFixture("global", "service", "github")
+	secretLsRegistryGHCR  = lsFixture("global", "registry", "ghcr.io")
+)
 
 func TestSetToken_ExistingSecretWithoutOverwriteIsRejected(t *testing.T) {
 	dir := t.TempDir()
@@ -203,8 +209,7 @@ func TestSetToken_ExistingSecretInSameSandboxScopeIsRejected(t *testing.T) {
 	// block a sandbox-scoped SetToken in that same scope. It also pins that
 	// List passes the scope through to `ls` — the fake's recorded args are
 	// the only thing distinguishing "ls of my-sandbox" from "ls of everything".
-	const fixture = "SCOPE        TYPE     NAME    SECRET\n" +
-		"my-sandbox   service  openai  testte**\n"
+	fixture := lsFixture("my-sandbox", "service", "openai")
 	dir := t.TempDir()
 	argFile := filepath.Join(dir, "args.txt")
 	c := stdinRecordingClient(t, argFile, filepath.Join(dir, "stdin.txt"), fixture)
@@ -252,8 +257,7 @@ func TestSetToken_SameServiceInDifferentScopeIsNotBlocked(t *testing.T) {
 	// `sbx secret ls` with no scope lists every scope, not global-only (only
 	// `-g` asks the CLI for global-only), so this fixture's "other-sandbox" row
 	// must not leak into a global-scope existence check.
-	const fixture = "SCOPE           TYPE     NAME    SECRET\n" +
-		"other-sandbox   service  openai  testte**\n"
+	fixture := lsFixture("other-sandbox", "service", "openai")
 	dir := t.TempDir()
 	argFile := filepath.Join(dir, "args.txt")
 	c := stdinRecordingClient(t, argFile, filepath.Join(dir, "stdin.txt"), fixture)

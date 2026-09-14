@@ -5,12 +5,11 @@ package secret
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
-	"github.com/squall-chua/sbx-go-sdk/internal/coltable"
 )
 
 // CustomSecret describes a custom proxy-injected secret.
@@ -80,49 +79,51 @@ func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecr
 	return err
 }
 
-// Header columns of the two `sbx secret ls` tables, in order. Drift yields
-// client.ErrUnexpectedFormat.
-var (
-	secretStdHeader    = []string{"SCOPE", "TYPE", "NAME", "SECRET"}
-	secretCustomHeader = []string{"SCOPE", "TARGETS", "ENV", "PLACEHOLDER", "SECRET"}
-)
-
 // Stored is a service or registry secret row (`sbx secret set`). Type is
 // "service" or "registry".
 type Stored struct {
-	Scope       string // "" = global, else sandbox name
-	Type        string // "service" | "registry"
-	Name        string // service name or registry host
-	ValueMasked string // masked display value — never the real secret
+	Scope string // "" = global, HostOnlyScope, else sandbox name
+	Type  string // "service" | "registry"
+	Name  string // service name or registry host
+	// ValueMasked is what the text table's SECRET column shows — a mask, with
+	// "USERNAME/" in front for a registry credential that has one. Never the
+	// real secret.
+	ValueMasked string
 }
 
 // Custom is a custom secret row (`sbx secret set-custom`).
 type Custom struct {
 	Scope       string // "" = global, else sandbox name
-	Targets     string // target host(s); comma-joined when one secret covers several (sbx v0.33.0)
+	Targets     string // target host(s); ", "-joined when one secret covers several (sbx v0.33.0)
 	Env         string // env var injected into the sandbox
 	Placeholder string
-	// ValueMasked is what the SECRET column shows. For a stored literal that
-	// is a mask ("*****"); for a resolver it is the source and its refresh
-	// policy instead, e.g. "command:vault read -field=k s/ai (30m)". Never the
-	// real secret either way.
+	// ValueMasked is what the text table's SECRET column shows. For a stored
+	// literal that is a mask ("*****"); for a resolver it is the source and its
+	// refresh policy instead, e.g. "command:vault read -field=k s/ai (30m)".
+	// Never the real secret either way.
 	ValueMasked string
 }
 
-// Secrets is the parsed `sbx secret ls` output: the standard table (service +
-// registry) and the custom-secrets table.
+// Secrets is the parsed `sbx secret ls` output: the standard list (service +
+// registry) and the custom-secrets list.
 type Secrets struct {
 	Stored []Stored
 	Custom []Custom
 }
 
-// List returns the parsed `sbx secret ls [SCOPE]` output. A format change in the
-// CLI's tables yields client.ErrUnexpectedFormat — use ListRaw to fall back.
+// List returns the parsed `sbx secret ls [--sandbox SCOPE] --json` output (the
+// flag arrived in sbx v0.42.0). Output that is not the expected JSON yields
+// client.ErrUnexpectedFormat — use ListRaw to fall back to the text.
 //
 // An empty scope lists every scope, not just global — the CLI's `-g` flag is
 // the only way to ask for global-only, and List has no way to pass it.
 func List(ctx context.Context, c *client.Client, scope string) (*Secrets, error) {
-	raw, err := ListRaw(ctx, c, scope)
+	args := append([]string{"secret", "ls"}, scopeArgs(scope)...)
+	r, err := c.Runner()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := r.Capture(ctx, nil, append(args, "--json")...)
 	if err != nil {
 		return nil, err
 	}
@@ -141,36 +142,63 @@ func ListRaw(ctx context.Context, c *client.Client, scope string) (string, error
 	return r.Capture(ctx, nil, args...)
 }
 
-// parseSecretList splits the output into the standard and custom sections and
-// parses each. A missing header in a section means that section is empty.
-func parseSecretList(raw string) (*Secrets, error) {
-	std, custom := splitCustomSection(raw)
-	out := &Secrets{}
+// secretJSON is one entry of either list in `sbx secret ls --json`.
+type secretJSON struct {
+	Scope       string   `json:"scope"`
+	Type        string   `json:"type"`
+	Name        string   `json:"name"`
+	Targets     []string `json:"targets"`
+	Env         string   `json:"env"`
+	Placeholder string   `json:"placeholder"`
+	Secret      string   `json:"secret"`
+	Username    string   `json:"username"`
+	Kind        string   `json:"kind"`
+	Source      string   `json:"source"`
+	Refresh     string   `json:"refresh"`
+}
 
-	rows, err := coltable.Parse(std, secretStdHeader)
-	if err != nil && !errors.Is(err, coltable.ErrNoHeader) {
+// masked rebuilds the text table's SECRET column, so ValueMasked reads the same
+// as it did before List moved to --json.
+func (s secretJSON) masked() string {
+	switch {
+	case s.Kind != "":
+		return s.Kind + ":" + s.Source + " (" + s.Refresh + ")"
+	case s.Username != "":
+		return s.Username + "/" + s.Secret
+	}
+	return s.Secret
+}
+
+// parseSecretList decodes `sbx secret ls --json`. A missing list key is
+// client.ErrUnexpectedFormat, never an empty result: the CLI prints both keys
+// even when a scope holds nothing.
+func parseSecretList(raw string) (*Secrets, error) {
+	var v struct {
+		Secrets       *[]secretJSON `json:"secrets"`
+		CustomSecrets *[]secretJSON `json:"custom_secrets"`
+	}
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
 		return nil, fmt.Errorf("secret list: %w: %w", client.ErrUnexpectedFormat, err)
 	}
-	for _, r := range rows {
+	if v.Secrets == nil || v.CustomSecrets == nil {
+		return nil, fmt.Errorf("secret list: %w: no \"secrets\" or \"custom_secrets\" key in output", client.ErrUnexpectedFormat)
+	}
+	out := &Secrets{}
+	for _, s := range *v.Secrets {
 		out.Stored = append(out.Stored, Stored{
-			Scope:       normScope(r["SCOPE"]),
-			Type:        r["TYPE"],
-			Name:        r["NAME"],
-			ValueMasked: r["SECRET"],
+			Scope:       normScope(s.Scope),
+			Type:        s.Type,
+			Name:        s.Name,
+			ValueMasked: s.masked(),
 		})
 	}
-
-	crows, err := coltable.Parse(custom, secretCustomHeader)
-	if err != nil && !errors.Is(err, coltable.ErrNoHeader) {
-		return nil, fmt.Errorf("secret list: %w: %w", client.ErrUnexpectedFormat, err)
-	}
-	for _, r := range crows {
+	for _, s := range *v.CustomSecrets {
 		out.Custom = append(out.Custom, Custom{
-			Scope:       normScope(r["SCOPE"]),
-			Targets:     r["TARGETS"],
-			Env:         r["ENV"],
-			Placeholder: r["PLACEHOLDER"],
-			ValueMasked: r["SECRET"],
+			Scope:       normScope(s.Scope),
+			Targets:     strings.Join(s.Targets, ", "),
+			Env:         s.Env,
+			Placeholder: s.Placeholder,
+			ValueMasked: s.masked(),
 		})
 	}
 	return out, nil
@@ -189,7 +217,7 @@ func parseSecretList(raw string) (*Secrets, error) {
 // error message per caller.
 //
 // This check depends on `sbx secret ls` succeeding: if List fails (e.g.
-// client.ErrUnexpectedFormat from a CLI table format change), the write is
+// client.ErrUnexpectedFormat from a CLI output format change), the write is
 // blocked rather than risking the silent no-op above — see the wrapped error
 // below.
 //
@@ -220,23 +248,15 @@ func checkNotStored(ctx context.Context, c *client.Client, scope, typ, name stri
 	return nil
 }
 
-// splitCustomSection splits raw at the "CUSTOM SECRETS" label line into the
-// standard-table text and the custom-table text. With no label, everything is the
-// standard section.
-func splitCustomSection(raw string) (standard, custom string) {
-	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
-	for i, ln := range lines {
-		if strings.TrimSpace(ln) == "CUSTOM SECRETS" {
-			return strings.Join(lines[:i], "\n"), strings.Join(lines[i+1:], "\n")
-		}
-	}
-	return raw, ""
-}
-
-// normScope maps sbx's "(global)" to the SDK's "" global convention.
+// normScope maps the scope words of `secret ls --json` to the SDK's
+// conventions: "global" is "" and "host-only" is HostOnlyScope. Any other
+// value is a sandbox name.
 func normScope(s string) string {
-	if s == "(global)" {
+	switch s {
+	case "global":
 		return ""
+	case "host-only":
+		return HostOnlyScope
 	}
 	return s
 }

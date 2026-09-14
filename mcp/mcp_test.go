@@ -29,17 +29,31 @@ func recordedArgs(t *testing.T, argFile string) string {
 	return string(b)
 }
 
-// Captured verbatim from `sbx mcp ls` at sbx v0.39.0 with two local and one
-// remote server registered. The group header and the footer must not be
-// mistaken for rows, and the columns are separated by a single space in
-// places, so a two-space gutter rule does not split them.
-const lsOutput = `LOCAL · managed by you · ✓ on
-
-  sdkprobe       local  stdio   ✓ ready
-  sdkprobe2      local  stdio   ✓ ready
-  sdkprobe3      remote http    ✓ ready
-
-3 servers · local only`
+// Captured verbatim from `sbx mcp ls --json` at sbx v0.42.1 with one local and
+// one remote server registered.
+const lsOutput = `{
+  "gateway": {
+    "name": "LOCAL",
+    "local": true,
+    "operator": "managed by you",
+    "decision": "local",
+    "signed_in_as": "me"
+  },
+  "servers": [
+    {
+      "name": "sdkprobe-local",
+      "transport": "local stdio",
+      "status": "ready",
+      "type": "local"
+    },
+    {
+      "name": "sdkprobe-remote",
+      "transport": "remote http",
+      "status": "ready",
+      "type": "remote"
+    }
+  ]
+}`
 
 func TestList(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
@@ -48,57 +62,105 @@ func TestList(t *testing.T) {
 	got, err := List(context.Background(), c)
 	require.NoError(t, err)
 	require.Equal(t, []Server{
-		{Name: "sdkprobe", Type: "local", Transport: "stdio", Status: "ready"},
-		{Name: "sdkprobe2", Type: "local", Transport: "stdio", Status: "ready"},
-		{Name: "sdkprobe3", Type: "remote", Transport: "http", Status: "ready"},
+		{Name: "sdkprobe-local", Type: "local", Transport: "stdio", Status: "ready"},
+		{Name: "sdkprobe-remote", Type: "remote", Transport: "http", Status: "ready"},
 	}, got)
-	require.Contains(t, recordedArgs(t, argFile), "mcp ls")
+	require.Contains(t, recordedArgs(t, argFile), "mcp ls --json")
 }
 
-// With nothing registered the CLI prints prose, not a listing.
 func TestList_EmptyIsNotAnError(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := stubClient(t, argFile, "No MCP servers registered")
+	c := stubClient(t, argFile, `{"gateway":{"name":"LOCAL"},"servers":[]}`)
 
 	got, err := List(context.Background(), c)
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
 
-// Captured verbatim from `sbx mcp inspect` at sbx v0.38.0. A remote server's
-// URL contains a colon, which must not confuse the label split.
+// A listing without its "servers" key must fail loudly. Reading it as "no
+// servers" is the silent wrong answer mcp.List shipped with at v0.39.0.
+func TestList_MissingServersKeyIsUnexpectedFormat(t *testing.T) {
+	for _, out := range []string{`{"gateway":{"name":"LOCAL"}}`, "No MCP servers registered"} {
+		c := stubClient(t, filepath.Join(t.TempDir(), "args.txt"), out)
+		_, err := List(context.Background(), c)
+		require.ErrorIs(t, err, client.ErrUnexpectedFormat, out)
+	}
+}
+
+// Captured verbatim from `sbx mcp inspect --json` at sbx v0.42.1.
 func TestInspect_Remote(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := stubClient(t, argFile, "Name:      sdkprobe2\nType:      remote\nURL:       https://mcp.deepwiki.com/mcp\nTransport: streamable-http")
+	c := stubClient(t, argFile, `{
+  "name": "sdkprobe-remote",
+  "type": "remote",
+  "url": "https://mcp.deepwiki.com/mcp",
+  "remote_transport": "streamable-http",
+  "requires_oauth": false
+}`)
 
-	d, err := Inspect(context.Background(), c, "sdkprobe2")
+	d, err := Inspect(context.Background(), c, "sdkprobe-remote")
 	require.NoError(t, err)
-	require.Equal(t, "sdkprobe2", d.Name)
+	require.Equal(t, "sdkprobe-remote", d.Name)
 	require.Equal(t, "remote", d.Type)
 	require.Equal(t, "https://mcp.deepwiki.com/mcp", d.URL)
 	require.Equal(t, "streamable-http", d.Transport)
 	require.False(t, d.RequiresOAuth)
-	require.Contains(t, recordedArgs(t, argFile), "mcp inspect sdkprobe2")
+	require.Contains(t, recordedArgs(t, argFile), "mcp inspect sdkprobe-remote --json")
 }
 
 func TestInspect_Local(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := stubClient(t, argFile, "Name:      sdkprobe\nType:      local\nCommand:   echo hi\nResolved:  /usr/bin/echo")
+	c := stubClient(t, argFile, `{
+  "name": "sdkprobe-local",
+  "type": "local",
+  "command": [
+    "echo",
+    "hi",
+    "there"
+  ],
+  "requires_oauth": false,
+  "resolved_command": "/usr/bin/echo"
+}`)
 
-	d, err := Inspect(context.Background(), c, "sdkprobe")
+	d, err := Inspect(context.Background(), c, "sdkprobe-local")
 	require.NoError(t, err)
-	require.Equal(t, "echo hi", d.Command)
+	require.Equal(t, "echo hi there", d.Command)
 	require.Equal(t, "/usr/bin/echo", d.Resolved)
-	require.Equal(t, "local", d.Fields["Type"])
+	// Deprecated Fields still answers with the old text labels.
+	require.Equal(t, map[string]string{
+		"Name": "sdkprobe-local", "Type": "local", "Command": "echo hi there", "Resolved": "/usr/bin/echo",
+	}, d.Fields)
 }
 
+// Captured verbatim at sbx v0.42.1 from a server registered with --skip-auth.
 func TestInspect_OAuthRequired(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := stubClient(t, argFile, "Name:      notion\nType:      remote\nOAuth:     required")
+	c := stubClient(t, argFile, `{
+  "name": "sdkprobe-oauth",
+  "type": "remote",
+  "url": "https://mcp.notion.com/mcp",
+  "remote_transport": "streamable-http",
+  "requires_oauth": true,
+  "oauth_providers": [
+    {
+      "issuer": "https://mcp.notion.com",
+      "registration_endpoint": "https://mcp.notion.com/register"
+    }
+  ]
+}`)
 
-	d, err := Inspect(context.Background(), c, "notion")
+	d, err := Inspect(context.Background(), c, "sdkprobe-oauth")
 	require.NoError(t, err)
 	require.True(t, d.RequiresOAuth)
+	require.Equal(t, "https://mcp.notion.com", d.Issuer)
+	require.Equal(t, "https://mcp.notion.com/register", d.Registration)
+	require.Equal(t, "required", d.Fields["OAuth"])
+}
+
+func TestInspect_NotJSONIsUnexpectedFormat(t *testing.T) {
+	c := stubClient(t, filepath.Join(t.TempDir(), "args.txt"), "Name:      x\nType:      local")
+	_, err := Inspect(context.Background(), c, "x")
+	require.ErrorIs(t, err, client.ErrUnexpectedFormat)
 }
 
 func TestAddRemote_Flags(t *testing.T) {
@@ -117,7 +179,8 @@ func TestAddRemote_Flags(t *testing.T) {
 	require.Contains(t, args, "--client-id my-client")
 	require.Contains(t, args, "--oauth-authorization-server ./acme-as.json")
 	require.Contains(t, args, "--scope read --scope write")
-	require.Contains(t, args, "--skip_auth")
+	require.Contains(t, args, "--skip-auth")
+	require.NotContains(t, args, "--skip_auth", "deprecated in sbx v0.42.0; it prints a warning")
 	require.Contains(t, args, "--skip-ssrf-check")
 }
 

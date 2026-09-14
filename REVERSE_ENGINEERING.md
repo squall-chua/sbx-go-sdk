@@ -1,21 +1,66 @@
 # `sbx` CLI — Reverse Engineering Notes
 
-Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.5 binary, with DWARF).
+Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.8 binary, with DWARF).
 
 > `docs/sbx-version-coverage.md` is the authority on which release a feature
 > shipped in — it is reconciled against upstream release notes and wired into
 > the drift gate. If a version marker below ever disagrees with that table,
 > the table wins.
 
-- **Module:** `github.com/docker/sandboxes` `v0.39.0`
+- **Module:** `github.com/docker/sandboxes` `v0.42.1`
 - **Main package:** `github.com/docker/sandboxes/cli-plugin/cmd/sandboxes`
-- **Daemon API version:** `0.26.0` (build `def8cb0523a77e757bdd6ef52b459fe374f3783e`)
+- **Daemon API version:** `0.28.0` (build `cc6e400a4a3ce3ce5e0b2b77b8ee352aac854c64`)
 - **What it is:** Docker Sandboxes — isolated micro-VM sandboxes for AI coding agents.
   Shipped both as a standalone `sbx` binary and as a `docker sandboxes` CLI plugin.
 - **Single-binary model (like docker/dockerd):** the same binary is both the CLI
   *and* the `sandboxd` daemon. The CLI re-execs itself to start the daemon.
 
-> Refreshed for **v0.39.0** (daemon api `0.26.0`, **unchanged**). The REST surface did not move:
+> Refreshed for **v0.42.1** (daemon api `0.26.0` → `0.28.0`). v0.40.0 and v0.41.0 were never
+> released; v0.42.1 is v0.42.0 plus one proxy fix. **The CLI still calls the same 46 REST ops**:
+> the `sandboxapi.New<Op>Request` set is identical to v0.39.0's, and re-running `dwarfgen` gives
+> only the known artifacts, so no wire type moved. The API bump is server-side — see the new
+> handlers at the end of §3's table.
+>
+> **Most read-only commands gained `--json`**: `mcp ls`, `mcp inspect`, `secret ls`, `skills ls`,
+> `ports`, `policy log`, `policy inspect`, `policy profile ls`, `prune --dry-run`, `kit validate`,
+> `kit verify`, `kit provenance`, `template inspect`, `volume ls`, `ttl`, `version`, and
+> `diagnose` (an alias for `-o json`). The SDK moved every text parser it could onto them. The
+> JSON is not the table in new clothes, and the gaps are worth remembering:
+>
+> - `secret ls --json` spells scopes `global` and `host-only`, where the table said `(global)` and
+>   `(host only)`; a sandbox scope is its name in both. `targets` is an array, which the table
+>   joined with `", "`. A registry username is its own key, which the table showed as `USER/**`.
+>   A resolver has `kind`, `source` and `refresh` in place of `secret`, which the table showed as
+>   `kind:source (refresh)`; `refresh` is always set, `on-demand` by default.
+> - `mcp ls --json` reports `transport` as `"local stdio"` / `"remote http"`, repeating the type.
+>   `mcp inspect --json` gives `command` as an array and puts the issuer and registration endpoint
+>   under `oauth_providers[]`. A server registered with `--skip-auth` lists as `needs-auth`.
+> - `prune --json` works **only with `--dry-run`**; a real prune refuses it with an error. So the
+>   real-prune path still reads the `Sandbox 'X' removed` lines.
+>
+> Each list key is printed even when the list is empty — a scope with no secrets still gives
+> `"secrets": []` — which is what lets a decoder treat a missing key as a format error.
+>
+> Behaviour changes: a publish that names no protocol is now **`tcp4`**, one IPv4 key, over the
+> CLI and REST alike (verified live); it used to be dual-stack `tcp`. Removing or pruning a
+> sandbox now **deletes its sandbox-scoped secrets** (verified live on prune). `mcp add
+> --skip_auth` is deprecated for `--skip-auth` and prints a warning. `secret rm --placeholder`
+> without `--force` prints "Cancelled" on a non-interactive stdin and **exits 0**.
+>
+> New commands: `attach`, `move`, `ttl`, `volume` (`create`/`inspect`/`ls`/`rm`), `skills
+> add`/`rm`/`update` (skills from Git), `template inspect`, `env plan`. New flags on `create` and
+> `run`: `--volume`, `--ttl`, `--on-timeout`, `--platform`, `--image-ref`, `--allow-network`,
+> `--kit-arg`, `--kit-args-file`, and `run --new`. `create` now accepts no workspace path, and a
+> sandbox kit reference as the agent positional. A global `--cloud` / `--cloud-api-url` pair sends
+> supported verbs to Docker Cloud Sandboxes. `mcp add --no-scope`. New agent: `devin`. `sbx env`
+> reads a non-hidden `sbxenv.yaml` and gained an `args:` block (`--env-arg`).
+>
+> Settings: two new feature flags, `feature.diagnosticsAutoUpload` and `feature.sandbox-nested`,
+> and eight new settings: `diagnostics.autoUpload` plus three `diagnostics.autoUpload*` tuning
+> keys, `env.rememberHostCommands`, `sandbox.disk.dockerVolume`, `ssh.agentForwardingEnabled`
+> and `ssh.agentSocketPath`. The `feature.sbx-api` family is still unprobed.
+>
+> Earlier, for **v0.39.0** (daemon api `0.26.0`, **unchanged**). The REST surface did not move:
 > the `sandboxapi.New<Op>Request` symbol set is identical to v0.38.0's 46, so every change this
 > release is CLI-side. Wire types gained one additive field, `SandboxInfo.StoppedAt` — and the
 > daemon does not emit it yet, verified against a stopped sandbox.
@@ -118,7 +163,8 @@ sbx                                          # interactive TUI mode
 sbx tui                                       # open the interactive TUI dashboard (explicit)
 sbx cp [flags] SRC DST                        # copy files host <-> sandbox (SANDBOX:PATH)
 sbx create [flags] AGENT PATH [PATH...]       # create a sandbox for an agent
-    create claude|codex|copilot|cursor|docker-agent(cagent)|droid|gemini|kiro|opencode|shell
+    create claude|codex|copilot|cursor|devin|docker-agent(cagent)|droid|gemini|kiro|opencode|shell
+      (devin is NEW in v0.42.0; see the v0.42.1 refresh note above for the v0.42.0 flags)
       flags: --clone --cpus --deny-network --env/-e --env-file --kit --memory/-m --name
              --profile --publish/-p --quiet/-q --static-mcp --template/-t
       (--env/-e and --env-file are NEW in v0.39.0; --env takes KEY=VALUE, or a bare
@@ -152,8 +198,9 @@ sbx ls [flags]                                # list sandboxes
 sbx mcp COMMAND                               # NEW in v0.38.0 — register/manage MCP servers
     mcp add NAME (--url URL | --command CMD [--args a,b] [--dir D])
         [--local] [--scope S]... [--client-id ID] [--oauth-authorization-server PATH|URL]
-        [--skip-ssrf-check] [--skip_auth]
-    mcp ls | inspect NAME | rm NAME            # no --json on either
+        [--skip-ssrf-check] [--skip-auth] [--no-scope]
+        (--skip-auth and --no-scope are NEW in v0.42.0; --skip_auth still works, deprecated)
+    mcp ls | inspect NAME | rm NAME            # --json on ls and inspect is NEW in v0.42.0
     (v0.39.0 reshaped `mcp ls`: no more NAME/TYPE/URL-COMMAND header. It now
      groups by gateway under a free-form header line, indents each server as
      `NAME  local|remote  stdio|http  ✓ ready`, and closes with an
@@ -228,7 +275,7 @@ sbx settings                                  # persistent settings (JSON, hot-r
 internal-only through v0.37.0; v0.38.0 promoted them to the visible top-level `sbx mcp`
 command. `save*` symbols remain internal (subcommands of `template`/`run`).
 
-Agents supported by `create`/`run`: **claude, codex, copilot, cursor, docker-agent
+Agents supported by `create`/`run`: **claude, codex, copilot, cursor, devin, docker-agent
 (alias cagent), droid, gemini, kiro, opencode, shell**.
 
 ---
@@ -350,6 +397,13 @@ Base: `http://localhost` over the unix socket. Echo router. `{name}` = sandbox i
 
 The last six were first mapped at v0.39.0 but are **not new** — every matching op symbol was
 already present at v0.38.0. They had simply never been probed. The SDK calls none of them.
+
+At v0.42.1 the server registers 61 handlers
+(`go tool nm /usr/bin/sbx | grep -oE 'sandboxapi\.\(\*ServerInterfaceWrapper\)\.[A-Za-z]+'`).
+Eight have no row above: `AttachAgentSession`, `AttachSSH`, `SessionHold`, `ExportImage`,
+`PullImage`, `GetMcpGateway`, `StreamUserPrompts` and `RespondToUserPrompt`. Their paths were
+not probed, and the handler list was never recorded before, so which of them is new in v0.42.0
+is not known. The CLI calls none of them — its op set did not change.
 
 **Live-verified at v0.37.0** (paths absent or `404` at v0.35.0):
 
@@ -509,7 +563,8 @@ it. `ClonedWorkspaceSize` and `Gpu` were new in v0.38.0 (`Gpu` pairs with `featu
 CLI-invisible fields are unchanged. Neither `--static-mcp` nor `--deny-network` appears here:
 both are applied by the CLI through separate calls after create, not carried in the create body.
 
-CLI-side client ops, from the `sandboxapi.New<Op>Request` symbols — **byte-identical at v0.39.0**
+CLI-side client ops, from the `sandboxapi.New<Op>Request` symbols — **byte-identical at v0.39.0
+and again at v0.42.1**
 (`go tool nm /usr/bin/sbx | grep -oE 'sandboxapi\.New[A-Za-z]+Request'`):
 
 `AddAllowedPath, AddMcpGatewayServer, ApplyNetworkPolicySetup, CheckMcpRegistration,

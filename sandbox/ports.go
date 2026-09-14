@@ -43,10 +43,12 @@ func (s *Sandbox) PublishPort(ctx context.Context, p Port) ([]Port, error) {
 //
 // The published-ports list is always fetched and filtered against it: a key
 // matches when its sandbox port equals the spec's, and its protocol, host port
-// and host IP each equal the spec's whenever the spec gave that field. A
-// loopback publish creates one key per address family, so a spec that omits the
-// host address matches every address family and one call still fully
-// unpublishes the port. A spec matching no published port is an error.
+// and host IP each equal the spec's whenever the spec gave that field. Since
+// sbx v0.42.0 a publish that names no protocol is "tcp4", one IPv4 key, so a
+// spec ending in "/tcp" does not match it — omit the protocol instead. An
+// explicit "tcp" publish still creates one key per address family, and a spec
+// that omits the host address matches them all. A spec matching no published
+// port is an error.
 func (s *Sandbox) UnpublishPort(ctx context.Context, spec string) error {
 	want, err := parsePortSpec(spec)
 	if err != nil {

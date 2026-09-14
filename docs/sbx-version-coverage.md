@@ -22,6 +22,9 @@ with a named spec) · **n/a** (needs no SDK surface).
 | v0.37.0 | `0.24.0` |
 | v0.38.0 | `0.26.0` |
 | v0.39.0 | `0.26.0` (unchanged) |
+| v0.40.0, v0.41.0 | never released |
+| v0.42.0 | `0.28.0` |
+| v0.42.1 | `0.28.0` (one proxy fix) |
 
 | Feature | sbx | SDK | Status |
 |---|---|---|---|
@@ -111,6 +114,36 @@ below is CLI-side, apart from one additive wire field.
 | `sbx ssh` hidden from the root help | v0.39.0 | `ssh` package | n/a — cobra visibility only. `sbx ssh setup` and `sbx setup ssh` both still work, so `ssh.Setup` is unaffected |
 | Feature flags: 9 → 23 | v0.39.0 | `settings.ListAll` | covered — generic. New are `feature.sandbox-usb`, `feature.network-user-prompts`, `update.channel`, and the `feature.sbx-api` family (`sbx-api` plus ten `sbx-api-*` sub-flags). That family looks like a gated public REST API and is worth probing next sync: if it exposes creation over REST, `sandbox.Create` could stop shelling out |
 | Non-flag settings: 18 → 23 | v0.39.0 | `settings.Set` / `Get` | covered — generic. New are `claude.remoteControl`, `kit.ignoreTransparencyLog`, `kit.requireSignature`, `kit.trustedSigners`, `platform.images.registryMirror` |
+
+## v0.42.0 and v0.42.1
+
+v0.40.0 and v0.41.0 were never released. v0.42.1 is v0.42.0 plus one sandbox
+proxy fix. The daemon API went from `0.26.0` to `0.28.0`, but the CLI still
+calls the same 46 REST ops, and re-running `dwarfgen` gives only the known
+artifacts. So no wire type moved; the new server handlers are listed in
+REVERSE_ENGINEERING.md §3.
+
+| Feature | sbx | SDK | Status |
+|---|---|---|---|
+| `--json` on read-only commands | v0.42.0 | `mcp.List`, `mcp.Inspect`, `secret.List`, `skillstore.List`, `sandbox.Prune` + `WithDryRun` | covered — each moved from a text parse to `--json`. Every decoder requires its list key, so a missing key is `client.ErrUnexpectedFormat`, never an empty result; the CLI prints each key even when the list is empty. `secret.List` rebuilds `ValueMasked` and `Targets` so they read exactly as the table columns did, and maps the JSON scope words `global` / `host-only` to `""` / `HostOnlyScope`. `mcp.Details.Fields` is deprecated and rebuilt from the named fields. `ListRaw` still returns the text. All five are verified live |
+| `prune --json` only with `--dry-run` | v0.42.0 | `sandbox.Prune` | covered — the CLI refuses `--json` on a real prune, so a real prune still reads the `Sandbox 'X' removed` lines |
+| `mcp add --skip-auth`; `--skip_auth` deprecated | v0.42.0 | `mcp.WithSkipAuth` | covered — the old spelling still works but prints a deprecation warning, so the SDK emits the new one |
+| Ports default to `tcp4`, not dual-stack `tcp` | v0.42.0 | `Sandbox.PublishPort`, `UnpublishPort` | covered — **breaking upstream**. A REST publish with no protocol also comes back `tcp4`, verified live. A spec ending in `/tcp` no longer matches a default publish; `UnpublishPort`'s doc says so |
+| Removing or pruning a sandbox deletes its sandbox-scoped secrets | v0.42.0 | `Sandbox.Remove`, `sandbox.Prune` | n/a — daemon-side. Verified live on prune, and noted on `Prune` |
+| `mcp ls` status `needs-auth` | v0.42.0 | `mcp.Server.Status` | covered — passed through. Seen live on an OAuth server registered with `WithSkipAuth` |
+| Devin agent | v0.42.0 | `sandbox.WithAgent` | covered — the SDK keeps no agent list, so any name passes through |
+| `create` with no workspace path | v0.42.0 | — | gap — `sandbox.Create` still requires `WithWorkspace` |
+| Sandbox kit reference as the agent positional | v0.42.0 | — | gap, unverified — `WithAgent` passes the string through, but the SDK builds the default sandbox name from it |
+| New `create` / `run` flags: `--volume`, `--ttl`, `--on-timeout`, `--platform`, `--image-ref`, `--allow-network`, `--kit-arg`, `--kit-args-file`; `run --new` | v0.42.0 | — | gap |
+| New commands: `attach`, `move`, `ttl`, `volume`, `skills add` / `rm` / `update`, `template inspect`, `env plan` | v0.42.0 | — | gap |
+| Global `--cloud` / `--cloud-api-url` (Docker Cloud Sandboxes) | v0.42.0 | — | gap |
+| `mcp add --no-scope`; scope sets in `mcp auth status` | v0.42.0 | — | gap — `AuthResult`'s new fields are not probed; that needs a granted credential |
+| `sbx env`: `sbxenv.yaml`, the plan and prompt, an `args:` block | v0.42.0 | — | n/a — `sbx env` is still a gap from v0.39.0 |
+| Sandbox Docker volume 50 GB → 10 GB | v0.42.0 | `settings.Set` | n/a — `DOCKER_SANDBOXES_DOCKER_SIZE` or the new `sandbox.disk.dockerVolume` setting |
+| `secret rm --placeholder` without `--force` cancels and exits 0 | v0.42.0 | `secret.Remove`, `RemoveCustom` | n/a — the SDK always passes `-f` |
+| `sbx version --json` reports `server.state` | v0.42.0 | `Client.DaemonHealth` | n/a — the SDK reads `/daemon/health` over REST |
+| New feature flags and settings | v0.42.0 | `settings` | covered — generic. New flags: `feature.diagnosticsAutoUpload`, `feature.sandbox-nested`. New settings: `diagnostics.autoUpload` and three `diagnostics.autoUpload*` tuning keys, `env.rememberHostCommands`, `sandbox.disk.dockerVolume`, `ssh.agentForwardingEnabled`, `ssh.agentSocketPath`. The `feature.sbx-api` family is still unprobed |
+| Security fixes (host D-Bus exec, OAuth callback port hijack) | v0.42.0 | — | n/a — upgrade sbx |
 
 ## Create-request fields the daemon accepts but the CLI cannot pass
 
