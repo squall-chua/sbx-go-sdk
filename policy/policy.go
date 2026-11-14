@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
@@ -41,16 +42,21 @@ func SetDefault(ctx context.Context, c *client.Client, name string) error {
 	return run(ctx, c, "policy", "init", name)
 }
 
-// Allow adds an allow rule for the given hosts within scope ("" = global).
+// Allow adds an allow rule for the given hosts within scope ("" = global). The
+// CLI makes one rule per host.
+//
+// The hosts go out as one comma-separated argument: sbx v0.51.0 takes a single
+// RESOURCES positional and rejects a second one.
 func Allow(ctx context.Context, c *client.Client, scope string, hosts ...string) error {
 	args := append([]string{"policy", "allow", "network"}, scopeArgs(scope)...)
-	return run(ctx, c, append(args, hosts...)...)
+	return run(ctx, c, append(args, strings.Join(hosts, ","))...)
 }
 
-// Deny adds a deny rule for the given hosts within scope ("" = global).
+// Deny adds a deny rule for the given hosts within scope ("" = global). The
+// hosts go out comma-separated, as for Allow.
 func Deny(ctx context.Context, c *client.Client, scope string, hosts ...string) error {
 	args := append([]string{"policy", "deny", "network"}, scopeArgs(scope)...)
-	return run(ctx, c, append(args, hosts...)...)
+	return run(ctx, c, append(args, strings.Join(hosts, ","))...)
 }
 
 // RemoveRule removes the network rule for resource within scope ("" = global).
