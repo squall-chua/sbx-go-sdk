@@ -44,29 +44,31 @@ type Server struct {
 }
 
 // List returns the registered MCP servers (`sbx mcp ls --json`, added in sbx
-// v0.42.0). None registered is an empty slice and a nil error. Output with no
-// "servers" key is client.ErrUnexpectedFormat, never an empty list.
+// v0.42.0). None registered is an empty slice and a nil error. Output that is
+// not a JSON array is client.ErrUnexpectedFormat, never an empty list.
+//
+// Since sbx v0.51.0 the output is a bare array, with the gateway repeated on
+// each entry; v0.42.0 wrapped it as {"gateway":…,"servers":[…]}. The CLI
+// prints [] when nothing is registered.
 func List(ctx context.Context, c *client.Client) ([]Server, error) {
 	raw, err := capture(ctx, c, "mcp", "ls", "--json")
 	if err != nil {
 		return nil, err
 	}
-	var v struct {
-		Servers *[]struct {
-			Name      string `json:"name"`
-			Type      string `json:"type"`
-			Transport string `json:"transport"`
-			Status    string `json:"status"`
-		} `json:"servers"`
+	var v *[]struct {
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		Transport string `json:"transport"`
+		Status    string `json:"status"`
 	}
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
 		return nil, fmt.Errorf("mcp ls: %w: %w", client.ErrUnexpectedFormat, err)
 	}
-	if v.Servers == nil {
-		return nil, fmt.Errorf("mcp ls: %w: no \"servers\" key in output", client.ErrUnexpectedFormat)
+	if v == nil {
+		return nil, fmt.Errorf("mcp ls: %w: output is null, not a list", client.ErrUnexpectedFormat)
 	}
 	out := []Server{}
-	for _, s := range *v.Servers {
+	for _, s := range *v {
 		out = append(out, Server{
 			Name: s.Name,
 			Type: s.Type,
