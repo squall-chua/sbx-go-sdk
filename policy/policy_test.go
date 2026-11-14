@@ -224,3 +224,10 @@ func TestInspectRaw_EmptySelectorIsRejected(t *testing.T) {
 	_, err := InspectRaw(context.Background(), c, "")
 	require.Error(t, err)
 }
+
+func TestRefresh_Argv(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	require.NoError(t, Refresh(context.Background(), recordingClient(t, argFile)))
+	data, _ := os.ReadFile(argFile)
+	require.Equal(t, "policy refresh\n", string(data))
+}

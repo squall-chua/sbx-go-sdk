@@ -326,6 +326,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | List rules | `policy ls` | v0.32.0 | `policy.List`, `policy.ListRaw` | ✅ REST as of v0.37.0, always `type=all` |
 | `ls` filters: `--wide`, `--source`, `--decision`, `--include-inactive` | `policy ls` | v0.35.0 | — | ❌ the fields are on `PolicyRule`; filter client-side |
 | Check whether an access is allowed | `policy check network` | v0.35.0 | `policy.Check` | ✅ |
+| Re-fetch governance policy now | `policy refresh` | v0.49.1 | `policy.Refresh` | ⚠️ argv-tested only; never run live, as it invalidates the cached registry credential |
 | Pending approvals | `policy approval ls\|inspect\|respond` | v0.49.1–v0.51.0 | `policy.ListApprovals`, `InspectApprovalRaw`, `RespondApproval` | ⚠️ entries are raw JSON: none has been seen, as approvals need org governance |
 | Check an HTTP request | `policy check http` | v0.51.0 | `policy.CheckHTTP` | ✅ REST; `WithCheckMethod` (default GET), `WithCheckSandbox` |
 | Governance / org status on a check | — | v0.37.0 | `Authorization.Governance` | ⚠️ fields decoded; live behaviour unverified, no governed org to test against |

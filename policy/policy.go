@@ -71,6 +71,19 @@ func Reset(ctx context.Context, c *client.Client) error {
 	return run(ctx, c, "policy", "reset", "--force")
 }
 
+// Refresh makes sandboxd fetch and apply the governance policy now (`sbx
+// policy refresh`, added in sbx v0.49.1) instead of at its next poll. The
+// refreshed policy applies to new connections only. Per the CLI's help it also
+// invalidates the cached registry credential, and it never restarts the daemon
+// or stops a sandbox.
+//
+// Unverified: it was never run against a real daemon, because of that
+// credential side effect. It shells out to the CLI, not POST /policy/refresh,
+// because that op's body and reply were never observed.
+func Refresh(ctx context.Context, c *client.Client) error {
+	return run(ctx, c, "policy", "refresh")
+}
+
 // capture runs an sbx subcommand and returns its stdout text.
 func capture(ctx context.Context, c *client.Client, args ...string) (string, error) {
 	r, err := c.Runner()
