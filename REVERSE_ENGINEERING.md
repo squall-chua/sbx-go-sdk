@@ -64,7 +64,9 @@ and handler names (§4). Up to v0.42.1 it was unstripped, with DWARF.
 > (`spec.Descriptor`) is not v2 renumbered, and these were probed against it:
 >
 > - There is no `name`. Inspect reports the directory name as `name`, and `displayName` is a separate key.
-> - There is no `environment` or `env`. Variables are `args:`, a map of name → `{default, required}`.
+> - There is no `environment` or `env`; both are rejected. An `args:` map of name → `{default}` validates
+>   (`required: true` also exists, per a binary error string). `--kit-arg` calls these arguments the
+>   kit declares. Whether, or how, they reach the sandbox environment was **not** verified.
 > - `version` is accepted but not reported by inspect.
 > - Behaviour comes from `capabilities: [{type: com.docker.sandbox/<cap>@N, config: …}]`. Types
 >   seen in the binary include `network-policy@1`/`@2`, `lifecycle@1`, `host-mount@1`, `port@1`,
@@ -364,6 +366,11 @@ sbx completion bash|zsh|fish|powershell
 ```
 
 ### Hidden commands (not in `--help`, but registered)
+
+At v0.51.0 `daemon` and `settings` are listed again under `Management Commands`, so only
+`inspect` and `ssh` are still hidden (`sbx inspect` returns to the help in v0.53.0). The
+flags below stay accurate.
+
 ```
 sbx daemon                                    # manage the sandboxd daemon
     daemon start [-d/--detach] [--policy allow-all|balanced|deny-all]
@@ -508,7 +515,8 @@ already present at v0.38.0. They had simply never been probed. The SDK calls non
 
 **At v0.51.0** (diffed against the v0.42.1 binary; both sets read with `strings`, see §4):
 
-- The CLI calls **50** REST ops, up from 46. New: `GetImageLocalMetadata`, `GetMcpGateway`,
+- The CLI calls **50** REST ops, up from 46. The command named beside an op is inferred from the
+  op's name and the new flags, not traced. New: `GetImageLocalMetadata`, `GetMcpGateway`,
   `GetSandboxDebugVM`, `RemoveMcpGatewayServer` (`mcp unload`), `RespondToUserPrompt`
   (`policy approval respond`) and `SetWorkingDirectory` (`run --workdir`). Gone:
   `StartMcpGateway` and `StopMcpGateway`. The SDK called none of the removed ones.
@@ -558,7 +566,8 @@ is not known. The CLI calls none of them — its op set did not change.
   CLI. The SDK's `mcp` package therefore shells out and parses `mcp ls` / `mcp inspect`, which have
   no `--json` flag. `mcp auth status` does take `--format json`.
 - `sbx mcp rm <unregistered-name>` exits **0** — a silent no-op, not an error. `sbx mcp inspect
-  <unregistered-name>` exits 1.
+  <unregistered-name>` exits 1. (**Changed in v0.45.0:** `mcp rm` of an unregistered name exits 1
+  with `MCP server "NAME" not found`, verified at v0.51.0.)
 - The `?include_inactive=true` question on `GET /policy/network/rules` is still unresolved: the
   response is byte-identical with and without it.
 
@@ -783,7 +792,7 @@ dpkg-deb -x /var/cache/apt/archives/docker-sbx_<OLD>-1~ubuntu.24.04~noble_amd64.
 sbx --help ; sbx <cmd> --help                    # cobra command tree
 # walk it: for each "...Commands:" block (v0.51.0 groups them as Sandbox / Management /
 # Experimental / Other — match ^[A-Za-z ]*Commands:$), recurse. Hidden commands
-# (daemon, inspect, ssh) never appear — ask for them by name.
+# (inspect, ssh at v0.51.0) never appear — ask for them by name.
 # Never probe a real `sbx prune -f` on a shared host: it removes every stopped sandbox.
 sbx -D daemon status                             # prints socket + log paths
 SOCK=~/.local/state/sandboxes/sandboxes/sandboxd/sandboxd.sock

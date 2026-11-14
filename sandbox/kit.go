@@ -68,7 +68,10 @@ func absLocal(ref string) string {
 //
 // The remedy in each case is to recreate the sandbox with WithKit, which the
 // CLI's own message names. Verified 2026-07-27 against sbx v0.37.0; the list
-// is worded "does not yet" upstream and is expected to shrink.
+// is worded "does not yet" upstream and is expected to shrink. It has: the
+// v0.48.0 release notes say `kit add` accepts kits with startup commands. That
+// was not re-verified, and the lists above have not been re-probed for v3
+// kits, whose capabilities replace these keys.
 //
 // Since sbx v0.51.0 two more refusals apply, both verified live. The built-in
 // agents run from published kit spec v3 kits, and a v1 or v2 mixin cannot join

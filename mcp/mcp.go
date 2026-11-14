@@ -310,11 +310,16 @@ func AddLocal(ctx context.Context, c *client.Client, name, command string, cmdAr
 
 // Remove deletes a registered server (`sbx mcp rm --force NAME`). --force is
 // always passed: since sbx v0.51.0 the CLI asks for confirmation and refuses
-// outright on a non-interactive stdin. Removing a name that was never registered is a
-// silent success — the CLI exits 0.
+// outright on a non-interactive stdin.
 //
-// This removes only the local registration. Hosted OAuth credentials survive
-// it; drop those with `sbx mcp auth rm <name>`.
+// Removing a name that was never registered is an error since sbx v0.45.0:
+// the CLI exits 1 with `MCP server "NAME" not found`, returned as the raw
+// *client.CLIError. Through v0.42.1 it was a silent success.
+//
+// Since v0.51.0 the CLI also clears the server's local OAuth token
+// (`--registration-only` keeps it, and is not wrapped). Whether hosted OAuth
+// credentials survive was verified only through v0.42.1; drop them explicitly
+// with AuthRemove first if it matters.
 func Remove(ctx context.Context, c *client.Client, name string) error {
 	if name == "" {
 		return errors.New("mcp rm: name must not be empty")

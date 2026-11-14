@@ -42,7 +42,8 @@ func copyFixture(t *testing.T, name string) string {
 	return dir
 }
 
-// Requires a real sbx on PATH. Needs no daemon, no sandbox and no network.
+// Requires a real sbx on PATH. Needs no sandbox and no network. Since sbx
+// v0.47.0 local kit inspect and validate need the daemon (--offline skips it).
 func TestSmoke_KitValidateInspectPack(t *testing.T) {
 	ctx := context.Background()
 	c, err := client.New(ctx, client.WithAutoStart())
