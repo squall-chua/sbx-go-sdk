@@ -301,6 +301,10 @@ sbx mcp COMMAND                               # NEW in v0.38.0 — register/mana
      space in places, so a two-space gutter rule does not split them.)
     mcp load NAME --sandbox SANDBOX            # attach to a RUNNING sandbox's gateway
     mcp unload NAME --sandbox SANDBOX          # NEW (v0.48.0) — detach without restarting the agent
+        (probed: not loaded / unknown name → 404 `MCP server "X" is not loaded in sandbox "S"`;
+         missing or stopped sandbox → 404 `does not exist or is not running`. A load that failed
+         at `initialize` still left an entry that unload removed. GET
+         /sandbox/NAME/mcp/gateway/servers → 405, so the loaded set is not readable over REST)
     mcp rm NAME [-f/--force] [--registration-only]   # v0.51.0: confirms, refuses with no TTY;
         (a plain rm also clears the local OAuth token; --registration-only keeps it)
     mcp add v0.51.0 extras: --header 'Name: value' (repeatable, ${placeholder} from secrets),

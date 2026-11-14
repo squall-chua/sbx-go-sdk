@@ -4,10 +4,13 @@ package integration
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/squall-chua/sbx-go-sdk/mcp"
+	"github.com/squall-chua/sbx-go-sdk/sandbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,4 +74,30 @@ func TestSmoke_MCPGatewayMode(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, []string{"local", "saas"}, m.Decision)
 	require.NotEmpty(t, m.Reason)
+}
+
+// Loads a stub stdio server (testdata/mcp-stub.sh) into a running sandbox and
+// unloads it again.
+func TestSmoke_MCPLoadUnload(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.New(ctx, client.WithAutoStart())
+	require.NoError(t, err)
+
+	stub, err := filepath.Abs("testdata/mcp-stub.sh")
+	require.NoError(t, err)
+	const name = "sbx-go-sdk-stub"
+	t.Cleanup(func() { _ = mcp.Remove(ctx, c, name) })
+	require.NoError(t, mcp.AddLocal(ctx, c, name, "sh", []string{stub}))
+
+	sb, err := sandbox.Create(ctx, c, sandbox.WithAgent("shell"), sandbox.WithWorkspace(t.TempDir()))
+	require.NoError(t, err)
+	t.Cleanup(func() { sb.Remove(ctx, sandbox.WithForce()) })
+
+	require.NoError(t, mcp.Load(ctx, c, name, sb.Name()))
+	require.NoError(t, mcp.Unload(ctx, c, name, sb.Name()))
+
+	err = mcp.Unload(ctx, c, name, sb.Name())
+	var cliErr *client.CLIError
+	require.True(t, errors.As(err, &cliErr), "a second unload must fail: %v", err)
+	require.Contains(t, cliErr.Stderr, "is not loaded")
 }

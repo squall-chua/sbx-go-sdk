@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -217,6 +218,13 @@ func TestRemoveAndLoad(t *testing.T) {
 	require.Contains(t, args, "mcp load notion --sandbox my-sbx")
 }
 
+func TestUnload(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := stubClient(t, argFile, "")
+	require.NoError(t, Unload(context.Background(), c, "notion", "my-sbx"))
+	require.Equal(t, "mcp unload notion --sandbox my-sbx", strings.TrimSpace(recordedArgs(t, argFile)))
+}
+
 // Captured verbatim at sbx v0.38.0 from a server registered with --skip_auth.
 func TestAuthStatus(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
@@ -269,6 +277,8 @@ func TestEmptyNamesRejectedBeforeShellOut(t *testing.T) {
 	require.Error(t, AddLocal(ctx, c, "x", "", nil))
 	require.Error(t, Remove(ctx, c, ""))
 	require.Error(t, Load(ctx, c, "x", ""))
+	require.Error(t, Unload(ctx, c, "", "sb"))
+	require.Error(t, Unload(ctx, c, "x", ""))
 	_, err := AuthRemove(ctx, c, "")
 	require.Error(t, err)
 	_, err = Inspect(ctx, c, "")

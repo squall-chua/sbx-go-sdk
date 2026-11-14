@@ -343,6 +343,24 @@ func Load(ctx context.Context, c *client.Client, name, sandbox string) error {
 	return run(ctx, c, []string{"mcp", "load", name, "--sandbox", sandbox})
 }
 
+// Unload detaches a server from a running sandbox's gateway (`sbx mcp unload
+// NAME --sandbox SANDBOX`, added in sbx v0.48.0). Connected agents lose its
+// tools at once, and a restart of the sandbox does not bring it back. The
+// registration stays; Load it again, or Remove it.
+//
+// A server that is not loaded, or a sandbox that does not exist or is not
+// running, is an error from the CLI (a daemon 404). A Load that failed can
+// still leave an entry behind for Unload to remove.
+func Unload(ctx context.Context, c *client.Client, name, sandbox string) error {
+	if name == "" {
+		return errors.New("mcp unload: name must not be empty")
+	}
+	if sandbox == "" {
+		return errors.New("mcp unload: sandbox must not be empty")
+	}
+	return run(ctx, c, []string{"mcp", "unload", name, "--sandbox", sandbox})
+}
+
 // AuthResult is the hosted OAuth state of one registered MCP server, as
 // `sbx mcp auth status --format json` reports it.
 //

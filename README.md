@@ -973,6 +973,7 @@ sb, _ := sandbox.Create(ctx, c,
 
 // …or attach to a running sandbox. Connected agents see the new tools at once.
 _ = mcp.Load(ctx, c, "deepwiki", sb.Name())
+_ = mcp.Unload(ctx, c, "deepwiki", sb.Name())  // detach; the registration stays
 
 _ = mcp.Remove(ctx, c, "deepwiki")          // registration only; hosted OAuth creds survive
 ```

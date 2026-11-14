@@ -223,7 +223,7 @@ retires the `gemini` agent name and removes `--detach` and `--privileged` from
 | `policy rm network --id RULE_ID` | — | — | gap — removes one rule by `PolicyRule.ID`, which `List` already decodes; simpler than repeating an HTTP rule's constraints in `RemoveRuleWith` |
 | `policy check network --protocol tcp\|udp` | — | — | gap — `POST /policy/network/check` takes `protocol` (verified with curl), but `policy.Check` has no option for it yet |
 | `policy ls --created-via`, `-q` | v0.49.1 | `policy.List` | n/a — `List` is REST and returns every rule |
-| `mcp unload NAME --sandbox S` | v0.48.0 | — | gap — backed by the new `RemoveMcpGatewayServer` op |
+| `mcp unload NAME --sandbox S` | v0.48.0 | `mcp.Unload` | covered — a shell-out (the CLI calls `RemoveMcpGatewayServer`). Verified live by `TestSmoke_MCPLoadUnload`, which loads a stub stdio server (`testdata/mcp-stub.sh`) into a running sandbox and unloads it. A second unload, an unknown server, or a sandbox that is missing or stopped is a daemon 404 ("is not loaded in sandbox", "does not exist or is not running"), returned as the `*CLIError`. A `Load` that failed (a command that is not an MCP server) still left an entry that `unload` removed |
 | `mcp rm --registration-only` | — (v0.53.0 notes) | — | gap. At v0.51.0 a plain `mcp rm` also clears the server's local OAuth token, verified live, so `mcp.Remove`'s doc line saying credentials survive it is now suspect |
 | `mcp add --header`, `--disable-http2`, `--resource`, `--callback-port` | v0.43.0, v0.45.0, —, — | — | gap |
 | `secret set-custom --value-stdin`, `--header`, `--name` | v0.51.0, —, — | `secret.SetCustom` | gap — `--value-stdin` would keep the value out of argv, the same reason `SetToken` uses stdin |
