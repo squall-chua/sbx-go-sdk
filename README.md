@@ -355,6 +355,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | --- | --- | --- | --- | --- |
 | Inspect a kit | `kit inspect` | v0.34.0 | `kit.Inspect` | ⚠️ upstream omits the `files/` payload from `--json` |
 | Validate a kit | `kit validate` | v0.34.0 | `kit.Validate` | ✅ OCI references are refused by the CLI |
+| Kit builder sandbox | `kit builder status` / `history` / `rm` | by v0.51.0 | `kit.BuilderStatusRaw`, `kit.BuilderHistoryRaw`, `kit.RemoveBuilder` | ⚠️ text only; any `history` call creates the builder |
 | Inspect/validate offline, inspect resolved | `kit inspect --offline/--resolved`, `kit validate --offline` | v0.49.1 / v0.51.0 | `kit.InspectWith`, `kit.ValidateWith` + `kit.WithOffline`, `kit.WithResolved` | ⚠️ `--resolved` unverified: no `extends:` parent resolves at v0.51.0 |
 | Pack a kit into a ZIP | `kit pack` | v0.34.0 | `kit.Pack` | ✅ |
 | Push / pull an OCI v2 artifact | `kit push`, `kit pull` | v0.34.0 | `kit.Push`, `kit.Pull` | ⚠️ never completed against a live registry |

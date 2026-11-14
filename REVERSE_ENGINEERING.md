@@ -280,6 +280,8 @@ sbx kit COMMAND                               # (experimental) kit artifacts
         (v0.51.0: no v1/v2 mixin into a v3 sandbox; asks approval for new permissions, no TTY → refuse)
     kit builder status | rm [-f] | history ls|inspect|logs|trace|export|rm [--yes]   # NEW
         (the shared sbx-kit-builder sandbox that builds v3 kits from source; its engine is the cache)
+        (any history call creates the builder, even ls; status has no --json; rm without -f refuses a
+         non-TTY stdin; rm -f exits 0 and prints "Removed" when there is no builder)
     (signing is keyless via Fulcio+Rekor unless --key; a local directory gets a
      kit.sig.bundle sidecar, an OCI reference gets an OCI referrer. Every push
      also attaches a SLSA provenance attestation, unsigned unless --sign)
