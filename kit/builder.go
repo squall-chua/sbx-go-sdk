@@ -33,6 +33,10 @@ func BuilderStatusRaw(ctx context.Context, c *client.Client) (string, error) {
 // Every call creates and starts the builder sandbox if it does not exist,
 // even `ls`. Remove it with RemoveBuilder.
 //
+// `rm` needs "--yes": without it the CLI refuses ("stdin is not a terminal;
+// use --yes to skip confirmation"), and it refuses before creating the
+// builder.
+//
 // At sbx v0.51.0 `ls` listed no records even straight after a successful v3
 // kit build in the builder; why is unexplained.
 func BuilderHistoryRaw(ctx context.Context, c *client.Client, args ...string) (string, error) {
@@ -52,8 +56,8 @@ func BuilderHistoryRaw(ctx context.Context, c *client.Client, args ...string) (s
 //
 // --force is always sent, as without it the CLI refuses a non-interactive
 // stdin. It also removes a builder that is in use, cutting off any build
-// running in it. It succeeds when there is no builder, though the CLI still
-// prints "Removed sandbox sbx-kit-builder".
+// running in it. With no builder it fails as a plain *client.CLIError
+// ("sandbox 'sbx-kit-builder' not found"), not client.ErrSandboxNotFound.
 func RemoveBuilder(ctx context.Context, c *client.Client) error {
 	r, err := c.Runner()
 	if err != nil {

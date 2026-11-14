@@ -114,16 +114,19 @@ type loadConfig struct {
 // declares. InspectWith only: ValidateWith refuses it, as the CLI has no such
 // flag for validate.
 //
-// Added in sbx v0.51.0, where no parent could be resolved in a live
-// probe: built-in agent names are refused as "no longer a built-in agent",
-// and an OCI reference or a path is not accepted as a parent. A kit without
-// extends: reports the same with or without it. How Info looks after a real
-// merge is unverified.
+// Added in sbx v0.51.0. The parent must be an agent still embedded in the
+// CLI: at v0.51.0 gemini, claude-bedrock and claude-vertex resolve, while
+// agents moved to published kits (claude, shell, ...) are refused as "no
+// longer a built-in agent", and an OCI reference or a path is not accepted.
+// Resolved, Extends is empty, Sandbox carries the parent's block and
+// Environment merges both. A kit without extends: reports the same either
+// way.
 func WithResolved() LoadOption { return func(c *loadConfig) { c.resolved = true } }
 
 // WithOffline skips the daemon-backed kit policy (kit.allowedSources,
-// kit.allowLocalKits, kit.requireSignature), so the call needs neither
-// sandboxd nor a sign-in (`--offline`, sbx v0.49.1).
+// kit.allowLocalKits, kit.requireSignature) (`--offline`, sbx v0.49.1). The
+// CLI says the call then needs neither sandboxd nor a sign-in; every probe
+// ran with the daemon up, so that is unverified.
 //
 // The CLI then accepts only a local directory or ZIP; anything else is
 // refused as a plain *client.CLIError. A kit spec v3 source kit cannot load
