@@ -574,9 +574,13 @@ already present at v0.38.0. They had simply never been probed. The SDK calls non
   Paths for the new handlers were not probed.
 - `GET /daemon/health` gained `runtime_backend` (a bool, `false` here).
 - `GET /sandbox/{name}` gained `working_dir`, `effective_working_dir`, `host_mounts`,
-  `runtime_mounts` and `last_used_at`, none of them in `api.SandboxInfo` yet. `sbx inspect --json`
+  `runtime_mounts` and `last_used_at`, now hand-typed in `api.SandboxInfo`. `sbx inspect --json`
   gained `created_version`, `host_mounts`, `runtime_mounts`, `working_dir` and
-  `effective_working_dir`.
+  `effective_working_dir`, now on `Summary`. All present on a stopped sandbox too.
+  `host_mounts` entries are `{container_target, host_path, read_only}` and include additional
+  workspaces; a workspace-less sandbox has `[]` and `effective_working_dir`
+  `/home/agent/workspace`. `working_dir` was `""` and `runtime_mounts` `[]` in every probe,
+  `run -w` included.
 
 At v0.42.1 the server registers 61 handlers
 (`go tool nm /usr/bin/sbx | grep -oE 'sandboxapi\.\(\*ServerInterfaceWrapper\)\.[A-Za-z]+'`).

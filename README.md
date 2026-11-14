@@ -272,6 +272,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Start / stop / remove | `stop`, `rm` | v0.32.0 | `sb.Start`, `sb.Stop`, `sb.Remove` | ✅ |
 | Stable per-sandbox ID | — | v0.33.0 | `sb.ID()` | ✅ |
 | Mount-policy-denied flag | — | v0.33.0 | `sb.MountPolicyDenied()` | ✅ |
+| Working dirs, host mounts, last use | — | v0.43.0 / v0.51.0 | `sb.Inspect` → `WorkingDir`, `EffectiveWorkingDir`, `HostMounts`, `RuntimeMounts`, `LastUsedAt`; `sb.Summary` also has `CreatedVersion` | ⚠️ `RuntimeMounts` stays raw JSON: only `[]` was ever seen |
 | Force-remove an active session | `rm -f` | v0.35.0 | `sandbox.WithForce()` | ✅ |
 | Remove every sandbox at once | `rm --all` | v0.37.0 | — | ❌ loop over `sandbox.List` |
 | Publish ports at create time | `-p/--publish` | v0.37.0 | `sandbox.WithPublish` | ✅ |
