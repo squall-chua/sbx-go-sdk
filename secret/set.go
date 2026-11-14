@@ -162,6 +162,12 @@ type RegistryCredential struct {
 	// Password is the password or token. It is written to the child's stdin and
 	// never appears in the argument vector.
 	Password string
+	// AuthEndpoint is the exact HTTPS URL of the registry's Bearer auth
+	// endpoint, for a registry whose realm is on another host, e.g. a
+	// self-hosted GitLab's ".../jwt/auth" (`--registry-auth-endpoint`, sbx
+	// v0.51.0). Optional. The CLI rejects anything but an HTTPS URL without
+	// credentials, query or fragment.
+	AuthEndpoint string
 }
 
 // SetRegistry stores a registry pull credential
@@ -210,6 +216,9 @@ func SetRegistry(ctx context.Context, c *client.Client, scope string, cred Regis
 	args = append(args, "--registry", cred.Host, "--password-stdin")
 	if cred.Username != "" {
 		args = append(args, "--username", cred.Username)
+	}
+	if cred.AuthEndpoint != "" {
+		args = append(args, "--registry-auth-endpoint", cred.AuthEndpoint)
 	}
 	if cfg.overwrite {
 		args = append(args, "--force")

@@ -377,6 +377,11 @@ sbx secret COMMAND                            # manage stored secrets
          masked value in `secret ls --json` keeps the stored length. Reusing an env → error
          "already exists … with placeholder P" unless --placeholder P is given (updates in place,
          host too); reusing an explicit placeholder replaces its entry with a warning. No prompt)
+        (--registry-auth-endpoint: accepted host-only, --all-sandboxes and --sandbox; non-HTTPS,
+         credentials, query or fragment → "registry auth endpoint must be an HTTPS URL without
+         credentials, query, or fragment"; without --registry → "requires --registry"; not
+         shown by secret ls --json. `secret rm HOST -f` on a registry host exits 0, removes
+         nothing; it needs `secret rm --registry HOST -f`)
     secret import [SERVICE] [--all] [--dry-run] [-f]   # NEW in v0.35.0
     (the positional SERVICE and --all are not new in v0.39.0 — the v0.37.0
      recon just never recorded them. The SDK has emitted both since then.)

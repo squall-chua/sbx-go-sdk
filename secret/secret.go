@@ -279,6 +279,10 @@ const HostOnlyScope = "(host only)"
 
 // Remove deletes a secret (service) in scope ("" = global). Uses -f to skip the
 // confirmation prompt (the CLI would otherwise block on non-TTY stdin).
+//
+// It cannot remove a registry credential: for a registry host the CLI exits 0
+// and removes nothing (verified at sbx v0.51.0), because that needs `secret
+// rm --registry`, which the SDK does not wrap.
 func Remove(ctx context.Context, c *client.Client, scope, service string) error {
 	args := append([]string{"secret", "rm"}, scopeArgs(scope)...)
 	if service != "" {
