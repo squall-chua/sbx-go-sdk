@@ -254,7 +254,10 @@ sbx create [flags] AGENT PATH [PATH...]       # create a sandbox for an agent
       v0.51.0: --quiet/-q is GONE (→ --no-progress, v0.48.0). NEW: --skills off|readonly|readwrite
        (v0.43.0; --no-share-skills is its hidden, deprecated alias for off), --mount HOST:SANDBOX_PATH
        (v0.50.0, kit host-mount@1 paths), --pull always|missing|never, --no-progress. PATH args take
-       PATH[:TARGET][:ro]. No per-agent `create <agent>` subcommands any more except `create gemini`
+       PATH[:TARGET][:ro]. Probed: on a `run` re-attach, --skills, --no-share-skills and --mount
+       all fail ("can only be used when creating a new sandbox"), while --pull, -w and --rm are
+       accepted; --rm removes even a re-attached sandbox. --mount without a kit declaring the
+       path → daemon 400 `no kit declares host-mount@1 at "/x"`. No per-agent `create <agent>` subcommands any more except `create gemini`
 sbx diagnose [--format table|json|yaml|github-issue] [--json] [--upload]
     (-o/--output, NEW in v0.38.0, was REPLACED by --format in v0.48.0 and is now an unknown flag)
     (exits NON-ZERO when any check fails, and still prints the whole report)

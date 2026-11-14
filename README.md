@@ -278,7 +278,11 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Set env vars at create time | `-e/--env`, `--env-file` | v0.39.0 | `sandbox.WithEnv`, `WithEnvFile` | ✅ the only route to the daemon's `Environment` field; a bare `KEY` inherits from your process |
 | Remove all stopped sandboxes | `prune` | v0.39.0 | `sandbox.Prune` | ✅ `WithDryRun`, `WithStoppedLongerThan`; always passes `--force`, which also removes an in-use sandbox |
 | Clone, CPUs, memory, template, profile, name | flags | v0.32.0 | `sandbox.With*` | ✅ |
-| Skip skill sharing | `--no-share-skills` | v0.37.0 | `sandbox.WithoutSharedSkills` | ⚠️ the flag always parses; whether it changes anything depends on the `feature.shareSkills` flag |
+| Shared skills mode | `--skills off\|readonly\|readwrite` | v0.43.0 | `sandbox.WithSkills`, `WithoutSharedSkills` | ✅ `WithoutSharedSkills` is `--skills off` (the old `--no-share-skills` is deprecated). Creation only: a `Run` re-attach fails with it set |
+| Bind host dirs to kit mount paths | `--mount HOST:SANDBOX_PATH` | v0.50.0 | `sandbox.WithMount` | ⚠️ HOST is made absolute; needs a kit declaring `host-mount@1` at the path, and that success path is untested. Creation only: a `Run` re-attach fails with it set |
+| Image pull policy | `--pull always\|missing\|never` | by v0.51.0 | `sandbox.WithPull` | ✅ |
+| Remove after the session | `run --rm` | v0.47.0 | `sandbox.WithRemoveOnExit` | ✅ package-level `Run` only; it also removes a sandbox `Run` re-attached to |
+| Session working directory | `run -w/--workdir` | v0.51.0 | `sandbox.WithWorkdir` | ✅ `Run` and `sb.Run`, on a re-attach too |
 | Per-sandbox deny rules at create time | `--deny-network` | v0.38.0 | `sandbox.WithDenyNetwork` | ✅ |
 | Fix the sandbox's MCP server set | `--static-mcp` | v0.38.0 | `sandbox.WithStaticMCP` | ✅ chosen once at create; `run` ignores it when re-attaching |
 

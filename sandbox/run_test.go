@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -53,6 +54,19 @@ func TestSandboxRun_ReattachesByName(t *testing.T) {
 
 	data, _ := os.ReadFile(argFile)
 	require.Contains(t, string(data), "run --name s1")
+}
+
+func TestSandboxRun_ReattachHonorsWorkdirNotRm(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := clientWithRecordingSbx(t, argFile)
+	sb := NewForTest(c, "s1")
+
+	_, err := sb.Run(context.Background(), WithStdio(nil, nil, nil),
+		WithWorkdir("/tmp"), WithRemoveOnExit(), WithAgentArgs("-c", "pwd"))
+	require.NoError(t, err)
+
+	data, _ := os.ReadFile(argFile)
+	require.Equal(t, "run --name s1 -w /tmp -- -c pwd", strings.TrimSpace(string(data)))
 }
 
 func TestRun_Package_InheritsExitCode(t *testing.T) {

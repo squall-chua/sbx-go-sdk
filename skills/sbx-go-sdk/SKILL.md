@@ -70,7 +70,9 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
 `WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`,
 `WithPublish` (`-p`, v0.37.0), `WithKit` (`--kit`, v0.34.0), `WithDenyNetwork`, `WithStaticMCP`
-(both v0.38.0), `WithoutSharedSkills`, `WithEnv`/`WithEnvFile` (v0.39.0). Remove option:
+(both v0.38.0), `WithoutSharedSkills` (= `WithSkills("off")`), `WithEnv`/`WithEnvFile` (v0.39.0),
+`WithSkills`, `WithMount`, `WithPull`, and the run-only `WithRemoveOnExit` (`--rm`) and
+`WithWorkdir` (`-w`, also on `sb.Run`) (v0.51.0). Remove option:
 `WithForce` (removes an active session).
 
 ## Gotchas (verified against sandboxd v0.42.1)
