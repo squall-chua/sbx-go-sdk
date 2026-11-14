@@ -1,7 +1,7 @@
 # sbx-go-sdk
 
 [![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev/)
-[![sbx v0.42.1](https://img.shields.io/badge/sbx-v0.42.1-2496ED?logo=docker)](https://docs.docker.com/)
+[![sbx v0.51.0](https://img.shields.io/badge/sbx-v0.51.0-2496ED?logo=docker)](https://docs.docker.com/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/squall-chua/sbx-go-sdk.svg)](https://pkg.go.dev/github.com/squall-chua/sbx-go-sdk)
 
 A Go SDK for automating **Docker Sandboxes** (`sbx`) — isolated micro-VM environments
@@ -153,7 +153,7 @@ sbx login
 **4. Verify** the CLI and daemon are healthy:
 
 ```bash
-sbx version    # CLI + daemon version (target this SDK against v0.42.1)
+sbx version    # CLI + daemon version (target this SDK against v0.51.0)
 sbx diagnose   # diagnose install / daemon issues
 sbx ls         # list sandboxes (an empty list means the daemon is reachable)
 ```
@@ -175,7 +175,7 @@ Requires:
   [Set up `sbx`](#set-up-sbx-prerequisite) above. The SDK shells out to it for create/run/cp/etc.
 - A reachable **`sandboxd`** — pass `client.WithAutoStart()` and the SDK will start it for you.
 
-This SDK is built and live-verified against **`sbx` / `sandboxd` v0.42.1** (daemon API `0.28.0`);
+This SDK is built and live-verified against **`sbx` / `sandboxd` v0.51.0** (daemon API `0.49.0`);
 see [Version alignment](#version-alignment) for how it tracks newer `sbx` releases.
 
 ## Quick start
@@ -867,7 +867,7 @@ fmt.Println(info.Name, info.Kind, info.Warnings)
 
 err := kit.Validate(ctx, c, "./my-kit")      // dir, ZIP or git repo — NOT an OCI reference
 if errors.Is(err, client.ErrKitRejected) {
-	// the CLI marked the artifact INVALID
+	// the CLI rejected the artifact ("valid": false)
 }
 
 _ = kit.Pack(ctx, c, "./my-kit", "./my-kit.zip") // out is required, never derived
@@ -1021,7 +1021,7 @@ if errors.As(err, &apiErr) {
 | `client.ErrIncompatibleVersion` | `WithStrictVersion` and the daemon is incompatible. |
 | `client.ErrDaemonNotRunning` | `EnsureRunning` couldn't make the socket healthy in time. |
 | `client.ErrBinaryNotFound` | the `sbx` binary isn't on `PATH` (any shell-out op). |
-| `client.ErrKitRejected` | `kit.Validate` — the CLI marked a kit artifact `INVALID:`. |
+| `client.ErrKitRejected` | `kit.Validate` — the CLI rejected a kit artifact (a `"valid": false` report). |
 
 ## Runnable examples
 
@@ -1050,12 +1050,12 @@ source. Invoke it with `/sbx-go-sdk`.
 ## Version alignment
 
 This SDK is **pinned to a tested `sbx` / `sandboxd` range**. It is currently built and
-live-verified against **`sbx` v0.42.1** with daemon REST **`api_version 0.28.0`**. Both values
+live-verified against **`sbx` v0.51.0** with daemon REST **`api_version 0.49.0`**. Both values
 are exported constants you can read at runtime:
 
 ```go
-client.ClientVersion    // "v0.42.1" — the sbx/daemon version the SDK was built against
-client.TestedAPIVersion // "0.28.0"  — the daemon REST api_version its wire types were generated from
+client.ClientVersion    // "v0.51.0" — the sbx/daemon version the SDK was built against
+client.TestedAPIVersion // "0.49.0"  — the daemon REST api_version its wire types were validated against
 ```
 
 **Why a pin exists.** The [transport is hybrid](#how-it-works): REST wire structs are generated
@@ -1093,6 +1093,9 @@ contract test:
    the [`internal/api/types_gen.go`](internal/api/types_gen.go) diff. **Re-apply the manual
    reconciliation listed in that file's header** — generation reverts it, and the build then fails,
    because `Sandbox.Kits` depends on `SandboxInfo.Labels` being `*map[string]string`.
+   **From v0.51.0 the release binary is stripped** — no symbol table, no DWARF — so dwarfgen
+   cannot run. Compare a live `GET /sandbox/{name}` against `SandboxInfo` key by key instead, and
+   diff the REST op set with `strings` (see REVERSE_ENGINEERING.md §4).
 3. Reconcile [`docs/sbx-version-coverage.md`](docs/sbx-version-coverage.md) against the upstream
    release notes for the new version — the drift gate's failure message points here, so a sync
    that quietly misses features (as v0.35.0's did) gets caught.

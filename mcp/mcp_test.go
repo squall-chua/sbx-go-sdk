@@ -29,31 +29,37 @@ func recordedArgs(t *testing.T, argFile string) string {
 	return string(b)
 }
 
-// Captured verbatim from `sbx mcp ls --json` at sbx v0.42.1 with one local and
-// one remote server registered.
-const lsOutput = `{
-  "gateway": {
-    "name": "LOCAL",
-    "local": true,
-    "operator": "managed by you",
-    "decision": "local",
-    "signed_in_as": "me"
-  },
-  "servers": [
-    {
-      "name": "sdkprobe-local",
-      "transport": "local stdio",
-      "status": "ready",
-      "type": "local"
-    },
-    {
-      "name": "sdkprobe-remote",
-      "transport": "remote http",
-      "status": "ready",
-      "type": "remote"
+// The local entry is captured verbatim from `sbx mcp ls --json` at sbx
+// v0.51.0; the remote entry follows the same shape, with the transport spelling
+// v0.42.1 used for a remote server.
+const lsOutput = `[
+  {
+    "name": "sdkprobe-local",
+    "transport": "local stdio",
+    "status": "ready",
+    "type": "local",
+    "gateway": {
+      "name": "LOCAL",
+      "local": true,
+      "operator": "managed by you",
+      "decision": "local",
+      "signed_in_as": "me"
     }
-  ]
-}`
+  },
+  {
+    "name": "sdkprobe-remote",
+    "transport": "remote http",
+    "status": "ready",
+    "type": "remote",
+    "gateway": {
+      "name": "LOCAL",
+      "local": true,
+      "operator": "managed by you",
+      "decision": "local",
+      "signed_in_as": "me"
+    }
+  }
+]`
 
 func TestList(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
@@ -70,17 +76,18 @@ func TestList(t *testing.T) {
 
 func TestList_EmptyIsNotAnError(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := stubClient(t, argFile, `{"gateway":{"name":"LOCAL"},"servers":[]}`)
+	c := stubClient(t, argFile, `[]`)
 
 	got, err := List(context.Background(), c)
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
 
-// A listing without its "servers" key must fail loudly. Reading it as "no
-// servers" is the silent wrong answer mcp.List shipped with at v0.39.0.
-func TestList_MissingServersKeyIsUnexpectedFormat(t *testing.T) {
-	for _, out := range []string{`{"gateway":{"name":"LOCAL"}}`, "No MCP servers registered"} {
+// A listing that is not an array must fail loudly — including the v0.42.0
+// object shape. Reading it as "no servers" is the silent wrong answer mcp.List
+// shipped with at v0.39.0.
+func TestList_NotAnArrayIsUnexpectedFormat(t *testing.T) {
+	for _, out := range []string{`{"gateway":{"name":"LOCAL"},"servers":[]}`, "null", "No MCP servers registered"} {
 		c := stubClient(t, filepath.Join(t.TempDir(), "args.txt"), out)
 		_, err := List(context.Background(), c)
 		require.ErrorIs(t, err, client.ErrUnexpectedFormat, out)
@@ -206,7 +213,7 @@ func TestRemoveAndLoad(t *testing.T) {
 	require.NoError(t, Load(context.Background(), c, "notion", "my-sbx"))
 
 	args := recordedArgs(t, argFile)
-	require.Contains(t, args, "mcp rm notion")
+	require.Contains(t, args, "mcp rm --force notion", "sbx v0.51.0 refuses without --force on a non-interactive stdin")
 	require.Contains(t, args, "mcp load notion --sandbox my-sbx")
 }
 
@@ -248,7 +255,7 @@ func TestAuthRemove(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "notion", got[0].ServerName)
-	require.Contains(t, recordedArgs(t, argFile), "mcp auth rm notion --format json")
+	require.Contains(t, recordedArgs(t, argFile), "mcp auth rm --force notion --format json")
 }
 
 func TestEmptyNamesRejectedBeforeShellOut(t *testing.T) {

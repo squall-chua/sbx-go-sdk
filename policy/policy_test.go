@@ -65,8 +65,8 @@ func TestPolicyMutations(t *testing.T) {
 	require.Contains(t, lines, "policy init balanced")
 	require.Contains(t, lines, "policy allow network example.com api.github.com")
 	require.Contains(t, lines, "policy deny network --sandbox mysandbox evil.example")
-	require.Contains(t, lines, "policy rm network --sandbox mysandbox --resource evil.example")
-	require.Contains(t, lines, "policy reset")
+	require.Contains(t, lines, "policy rm network --sandbox mysandbox --resource evil.example --force")
+	require.Contains(t, lines, "policy reset --force")
 }
 
 func TestPolicyLog(t *testing.T) {
@@ -74,7 +74,7 @@ func TestPolicyLog(t *testing.T) {
 	l, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/network/log", r.URL.Path)
+		require.Equal(t, "/policy/network/log", r.URL.Path)
 		w.Write([]byte(`{"blocked_hosts":[],"allowed_hosts":[{"host":"api.github.com:443","vm_name":"s1","proxy_type":"forward","rule":"domain-allowed","last_seen":"2026-06-10T11:29:10Z","since":"2026-06-10T11:29:10Z","count_since":2}]}`))
 	})}
 	go srv.Serve(l)

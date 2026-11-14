@@ -38,13 +38,13 @@ type versionResponse struct {
 }
 
 // ClientVersion is the sbx/daemon version this SDK was built/tested against.
-const ClientVersion = "v0.42.1"
+const ClientVersion = "v0.51.0"
 
 // TestedAPIVersion is the daemon REST api_version this SDK's wire types were
 // generated from and validated against (see DaemonHealthResponse.APIVersion). The
 // integration contract test (TestContract_VersionAlignment) fails when a live
 // daemon drifts from it, signalling a re-sync is due.
-const TestedAPIVersion = "0.28.0"
+const TestedAPIVersion = "0.49.0"
 
 // CheckVersion asks the daemon whether this client is compatible.
 //
@@ -238,22 +238,23 @@ func (c *Client) Login(ctx context.Context, username, token string) error {
 	return err
 }
 
-// Logout signs out of Docker (`sbx logout --yes`).
+// Logout signs out of Docker (`sbx logout --force`).
 //
 // It **stops every running sandbox** first — that is upstream's behaviour, not
-// this SDK's addition. --yes is always passed, because the confirmation prompt
-// would otherwise block on non-interactive stdin. Sandboxes are stopped, not
+// this SDK's addition. --force is always passed, because the confirmation prompt
+// would otherwise block on non-interactive stdin. (sbx v0.51.0 renamed the
+// flag from --yes, which it no longer accepts.) Sandboxes are stopped, not
 // removed; their state survives.
 func (c *Client) Logout(ctx context.Context) error {
 	r, err := c.runnerOrErr()
 	if err != nil {
 		return err
 	}
-	_, err = r.Capture(ctx, nil, "logout", "--yes")
+	_, err = r.Capture(ctx, nil, "logout", "--force")
 	return err
 }
 
-// DiagnosticCheck is one check from `sbx diagnose -o json`. Detail and Hint are
+// DiagnosticCheck is one check from `sbx diagnose --json`. Detail and Hint are
 // often empty; Hint carries the CLI's remediation advice when it has one.
 type DiagnosticCheck struct {
 	Name    string `json:"name"`
@@ -271,7 +272,7 @@ type DiagnosticSummary struct {
 	Skip int `json:"skip"`
 }
 
-// Diagnosis is the `sbx diagnose -o json` report: the CLI-side install checker.
+// Diagnosis is the `sbx diagnose --json` report: the CLI-side install checker.
 type Diagnosis struct {
 	Version string            `json:"version"` // report schema version, "1.0" at sbx v0.38.0
 	Checks  []DiagnosticCheck `json:"checks"`
@@ -282,8 +283,8 @@ type Diagnosis struct {
 // with no internet to check for CLI updates warns, and still works.
 func (d *Diagnosis) OK() bool { return d.Summary.Fail == 0 }
 
-// Diagnose runs the CLI-side install checker (`sbx diagnose -o json`, whose JSON
-// output arrived in sbx v0.38.0). It reports on the binary, the daemon, storage
+// Diagnose runs the CLI-side install checker (`sbx diagnose --json`; JSON output
+// arrived in sbx v0.38.0 as `-o json`, which v0.51.0 removed). It reports on the binary, the daemon, storage
 // paths, the socket and authentication.
 //
 // This is not Diagnostics: that returns the daemon's own self-check from
@@ -303,7 +304,7 @@ func (c *Client) Diagnose(ctx context.Context) (*Diagnosis, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, runErr := r.Capture(ctx, nil, "diagnose", "-o", "json")
+	out, runErr := r.Capture(ctx, nil, "diagnose", "--json")
 	var d Diagnosis
 	if err := json.Unmarshal([]byte(out), &d); err != nil {
 		if runErr != nil {

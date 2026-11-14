@@ -1,0 +1,27 @@
+# syntax=docker/sandbox-kit:3
+#
+# The kit TestSmoke_AddKitRecordsAbsolutePath adds. The other kit tests use
+# ../fixture-kit, a v2 kit, because `kit sign` cannot load a v3 kit at sbx
+# v0.51.0 (it decodes spec.yaml as v1/v2 and rejects `capabilities`).
+#
+# Why v3: sbx v0.51.0 runs the built-in agents from published v3 kits
+# (docker.io/sbx/<agent>), and `kit add` refuses to mix a v1/v2 mixin into one
+# ("cannot mix v3 kits with v1/v2 kits in one sandbox"). A v3 kit is built
+# through BuildKit, so the `# syntax=` line must stay the first line, or the
+# build parses this file as a Dockerfile.
+#
+# Why empty: at v0.51.0 `kit add` asks for approval of any permission the
+# sandbox was not granted (a network allow, for one) and refuses outright on a
+# non-interactive stdin. It has no flag to pre-approve. This kit therefore
+# requests nothing.
+#
+# v3 is not v2 renumbered: the descriptor has no `name` (inspect reports the
+# directory name, so the test copies this file into a directory named
+# fixture-kit), `environment` and `env` are both rejected (an `args:` map of
+# declared arguments validates, though how args reach the sandbox is
+# unverified), and network policy is a `com.docker.sandbox/network-policy@1`
+# capability.
+schemaVersion: "3"
+kind: mixin
+displayName: fixture-kit
+description: fixture for sbx-go-sdk integration tests

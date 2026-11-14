@@ -240,7 +240,9 @@ func FromRef(ref string) SetOption { return func(c *setConfig) { c.ref = ref } }
 // storing a literal (`--command`, added in sbx v0.39.0).
 //
 // The command text is stored by the daemon and replayed on demand, so put any
-// environment it needs in the command itself or in a wrapper script. Never
+// environment it needs in the command itself or in a wrapper script. Since
+// sbx v0.46.0 it runs from a fresh temporary directory, so a relative path
+// such as ./helper no longer resolves: use an absolute path or a name on PATH. Never
 // embed a secret in the command: the text appears in the argument vector when
 // this call runs, in shell history, and in `sbx secret ls` output — upstream
 // prints that same warning. FromRef is the safer choice where it fits.

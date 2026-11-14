@@ -25,6 +25,11 @@ with a named spec) · **n/a** (needs no SDK surface).
 | v0.40.0, v0.41.0 | never released |
 | v0.42.0 | `0.28.0` |
 | v0.42.1 | `0.28.0` (one proxy fix) |
+| v0.43.0, v0.45.0–v0.48.0 | not recorded — this sync went from v0.42.1 straight to v0.51.0 |
+| v0.44.0 | no release page found upstream; unknown whether it shipped |
+| v0.49.0 | never released (v0.49.1's notes say it was skipped) |
+| v0.49.1, v0.50.0, v0.50.1 | not recorded |
+| v0.51.0 | `0.49.0` |
 
 | Feature | sbx | SDK | Status |
 |---|---|---|---|
@@ -145,6 +150,92 @@ REVERSE_ENGINEERING.md §3.
 | New feature flags and settings | v0.42.0 | `settings` | covered — generic. New flags: `feature.diagnosticsAutoUpload`, `feature.sandbox-nested`. New settings: `diagnostics.autoUpload` and three `diagnostics.autoUpload*` tuning keys, `env.rememberHostCommands`, `sandbox.disk.dockerVolume`, `ssh.agentForwardingEnabled`, `ssh.agentSocketPath`. The `feature.sbx-api` family is still unprobed |
 | Security fixes (host D-Bus exec, OAuth callback port hijack) | v0.42.0 | — | n/a — upgrade sbx |
 
+## v0.43.0 through v0.51.0
+
+This sync jumped from v0.42.1 to v0.51.0, and the daemon API went from `0.28.0`
+to `0.49.0`. The surface was diffed old-vs-new against the v0.42.1 `.deb` left in
+the apt cache: the full cobra help tree, the CLI's REST op set and the server's
+handler set. The **Release** column comes from the upstream release notes
+(github.com/docker/sbx-releases, its newreleases.io mirror, and the docs release
+notes page). Those notes were read condensed, so a "—" means no note named the
+item, not that it is new in v0.51.0. **The v0.51.0 binary is stripped**, so
+`dwarfgen` could not run; see REVERSE_ENGINEERING.md §3 for how the wire types
+were checked instead.
+
+**Watch the next sync:** v0.53.0 reverses the v0.48.0 logout rename. `sbx logout`
+takes `--yes`/`-y` again, so `Client.Logout`'s `--force` will break. v0.53.0 also
+retires the `gemini` agent name and removes `--detach` and `--privileged` from
+`sbx exec`.
+
+### Breaking changes the SDK has absorbed
+
+| Change | Release | SDK | Status |
+|---|---|---|---|
+| `diagnose -o/--output` replaced by `--format` (`--json` is an alias of `--format json`) | v0.48.0 | `Client.Diagnose` | covered — emits `--json`. The report shape is unchanged, verified live |
+| `logout --yes` renamed `--force` | v0.48.0 | `Client.Logout` | covered — emits `--force`. Only verified as accepted by the flag parser; a real logout signs the maintainer out. Reversed again in v0.53.0, see above |
+| `mcp ls --json` is a bare array, with the gateway repeated on each entry | v0.48.0 | `mcp.List` | covered — anything that is not an array, including the old `{gateway, servers}` object and `null`, is `ErrUnexpectedFormat`. The CLI prints `[]` when nothing is registered |
+| Removals ask for confirmation and exit 1 with no TTY | v0.45.0, tightened in v0.48.0 | `mcp.Remove`, `mcp.AuthRemove`, `policy.RemoveRule` | covered — each now passes `--force`; all three verified live. `template rm` prompts too, but `template.Remove` is REST. No note names the individual commands |
+| `kit validate` dropped the `INVALID:` stderr prefix | — | `kit.Validate` | covered — reads `kit validate --json` and maps `"valid": false` to `ErrKitRejected`. A usage error such as a missing path prints no report and stays a `*CLIError`. A failed v3 build is also a `valid: false` report; its build progress goes to stderr. ADR 0002's ledger row is updated. Whether a `kit.allowedSources` refusal is still a report is unverified |
+| A real prune no longer prints `Sandbox 'X' removed` | — | `sandbox.Prune` | covered — a real prune reads the candidates from `--dry-run --json`, runs the prune, and returns the candidates `GET /sandbox` no longer lists. It no longer depends on the CLI's wording. The new real-prune text was never captured, and whether a real prune now accepts `--json` is unverified (v0.42.1 refused it) |
+| Kit spec v3; v3 kits cannot be combined with v1/v2 kits | v0.45.0 | `Sandbox.AddKit`, integration fixtures | covered — the built-in agents run from v3 kits since v0.51.0, so a v2 mixin can no longer be added to a fresh sandbox. `TestSmoke_AddKitRecordsAbsolutePath` uses a new v3 fixture (`testdata/fixture-kit-v3`); the v2 fixture stays for the validate/inspect/pack/sign tests, because **`kit sign` cannot load a v3 kit** at v0.51.0 (its decoder rejects `capabilities`). `AddKit`'s doc records the new refusal |
+| Built-in agents resolve to published kits `docker.io/sbx/<agent>:latest` | v0.51.0 | `sandbox.WithAgent` | n/a — the name passes through unchanged. Kits now override the agent name through `kit.shortcuts.<agent>` |
+| `kit add` asks for approval of permissions the sandbox lacks | — | `Sandbox.AddKit` | gap — on a non-interactive stdin the CLI refuses ("stdin is not a terminal"), and `kit add` has no flag to pre-approve. A kit that widens permissions has to go in at creation through `WithKit`. Verified live with a network allow. Recorded in `AddKit`'s doc |
+| `--no-share-skills` deprecated for `--skills off` | v0.43.0 | `sandbox.WithoutSharedSkills` | covered, deprecated upstream — still parses at v0.51.0, though it is hidden from `--help` and the `feature.shareSkills` flag is gone. Move to `--skills off` when `--skills` is wrapped |
+| `prune --filter since=` no longer documented; `until=TIMESTAMP` added | v0.43.0 | `sandbox.WithStoppedLongerThan` | covered — `since=` still filters, verified live (`since=1s` keeps a sandbox stopped 5 s ago, `since=24h` drops it). The help documents only `until=` now, so expect the old spelling to go eventually |
+| `create --quiet` replaced by `--no-progress` | v0.48.0 | — | n/a — the SDK never passed `-q` |
+| `run --detached` replaced by `--detach`/`-d` | v0.48.0 | — | n/a — the SDK does not run detached |
+| `--global` deprecated and hidden | v0.48.0 | `secret` | n/a — the SDK stopped emitting `-g` in v0.38.0 |
+| `settings list` → `settings ls`; `list` kept as an alias | v0.48.0 | `settings.List`, `ListAll` | covered — `settings list --all --json` still works, and the output was already a bare array |
+| `--cloud-api-url` removed | — | — | n/a — never wrapped |
+| `feature.sbx-api` family removed | — | — | n/a — it was never probed. The idea of moving `sandbox.Create` onto that REST API is dead |
+| `SandboxInfo` gained `working_dir`, `effective_working_dir`, `host_mounts`, `runtime_mounts`, `last_used_at` | v0.43.0 (`last_used_at`), v0.51.0 (host mounts) | `api.SandboxInfo` | gap — decoded as unknown fields, so harmless; not typed yet. `sbx inspect --json` also adds `created_version`, `host_mounts`, `runtime_mounts` and the working directories, which `Summary` lacks |
+| `mcp rm` of an unregistered server is an error | v0.45.0 | `mcp.Remove` | covered — exits 1 with `MCP server "NAME" not found`, verified live, and returned as the raw `*CLIError`. **Behaviour change for callers:** through v0.42.1 this was a silent success, as `Remove`'s doc promised. The doc now says otherwise; the SDK does not swallow the error. Also since v0.51.0 `mcp rm` clears the server's local OAuth token |
+| `secret rm` errors for a missing secret | v0.45.0, v0.49.1 | `secret.Remove`, `RemoveCustom` | n/a at v0.51.0 — with `-f`, which the SDK always passes, removing a missing service or placeholder still exits 0, verified live |
+| `policy reset` confirmation refuses with no TTY | v0.48.0 (prompts on empty stdin became refusals) | `policy.Reset` | covered — now passes `--force`. **Not run live**: it would wipe the host's policies. The fix rests on `policy reset --help` ("prompted for confirmation unless --force") and the v0.48.0 note |
+| `policy.Log` requested `/network/log` | not an upstream change | `policy.Log` | covered — **an older SDK bug**, uncovered here: the daemon answers `/network/log` with 404, and the route is `/policy/network/log` (also what the v0.42.1 CLI called). Same body, verified live. The unit test had asserted the wrong path, and no integration test called `Log` |
+| Sandbox names: at most 63 characters (v0.43.0), no `+` (v0.51.0) | v0.43.0, v0.51.0 | `sandbox.Create` default name | covered — `generateName` now maps `+` to `-` and cuts the name, collision suffix included, to 63 characters. Both CLI rejections verified live. An explicit `WithName` is not checked; the CLI's error comes back as-is |
+| JSON shape changes: `ls`, `template ls`, `ports`, `policy log`; removal actions report lowercase `removed`/`stopped`/`failed` | v0.48.0 | `sandbox.List`, `template.List`, `Ports`, `policy.Log` | n/a — all four SDK paths are REST, not the CLI's JSON |
+| `secret ls\|rm --env` renamed `--env-name` | v0.48.0 | `secret` | n/a — the SDK passes `--env` only to `set-custom`, where it is still the flag |
+| `--command` helpers run from a fresh temporary directory | v0.46.0 | `secret.FromCommand` | n/a — documented on `FromCommand`: a relative path such as `./helper` no longer resolves |
+| Local `kit inspect` / `validate` / `pull` need the daemon | v0.47.0 | `kit` package | n/a — `--offline` (v0.49.1) skips it and is not wrapped. The kit integration test's "needs no daemon" comment is corrected |
+| `kit add` accepts kits with startup commands | v0.48.0 | `Sandbox.AddKit` | unverified — the refused-field list in `AddKit`'s doc predates this and v3, and now says so. Re-probe it with v3 capabilities |
+| Sandboxes created from the embedded Claude or Codex specs must be recreated before `kit add`, `run --model` or `move` | v0.51.0 | `Sandbox.AddKit` | n/a — the CLI's own error comes back. Pre-v0.51.0 sandboxes on an upgraded host hit it |
+| Custom secrets without destination hosts no longer substitute credentials | v0.51.0 | `secret.SetCustom` | n/a — the SDK sends whatever hosts the caller gives; a hostless custom secret is now inert |
+| `secret import SERVICE` without `--all` | — | `secret.Import` | unverified — the help says each detected variable is offered with a Y/n prompt, which would refuse on a non-interactive stdin. `--dry-run` skips the prompt, so it proves nothing, and a real import was not run here. `ImportAll` passes `--all`, which imports without prompting |
+| `secret set-custom` warns before replacing a mapping | v0.49.1 | `secret.SetCustom` | unverified — whether the warning is a prompt (and so a refusal with no TTY) was not tested; the help does not say |
+
+### New surface not yet wrapped
+
+| Feature | Release | SDK | Status |
+|---|---|---|---|
+| `create`/`run --skills off\|readonly\|readwrite`, setting `skills.defaultMode` | v0.43.0 | — | gap |
+| `create`/`run --mount HOST:SANDBOX_PATH` (kit `host-mount@1` paths) | v0.50.0 | — | gap |
+| `create`/`run --pull always\|missing\|never` | — | — | gap |
+| `create`/`run --no-progress` | v0.48.0 / v0.51.0 | — | n/a — `sandbox.Create` never parses progress |
+| `run --rm`, `run -w/--workdir` | v0.47.0, v0.51.0 | — | gap — `--workdir` is backed by the new `SetWorkingDirectory` REST op |
+| Additional workspaces `PATH:TARGET[:ro]` | v0.51.0 | `sandbox.WithWorkspace` | unverified — the SDK passes the string through, so a `:TARGET` probably works; not tested |
+| `policy approval ls/inspect/respond` | — (`ls -q` in v0.49.1) | — | gap — backed by `RespondToUserPrompt`, which the CLI now calls |
+| `policy check http` | v0.51.0 | — | gap |
+| `policy refresh` | v0.49.1 | — | gap — `POST /policy/refresh` was already mapped in §3 |
+| HTTP rules: `--method`, `--path`, `--query` on allow/deny/rm | v0.45.0 (kits), v0.50.0 (`--query`) | — | gap |
+| UDP rules: `--protocol tcp\|udp` | v0.45.0 | — | gap |
+| `policy ls --created-via`, `-q` | v0.49.1 | `policy.List` | n/a — `List` is REST and returns every rule |
+| `mcp unload NAME --sandbox S` | v0.48.0 | — | gap — backed by the new `RemoveMcpGatewayServer` op |
+| `mcp rm --registration-only` | — (v0.53.0 notes) | — | gap. At v0.51.0 a plain `mcp rm` also clears the server's local OAuth token, verified live, so `mcp.Remove`'s doc line saying credentials survive it is now suspect |
+| `mcp add --header`, `--disable-http2`, `--resource`, `--callback-port` | v0.43.0, v0.45.0, —, — | — | gap |
+| `secret set-custom --value-stdin`, `--header`, `--name` | v0.51.0, —, — | `secret.SetCustom` | gap — `--value-stdin` would keep the value out of argv, the same reason `SetToken` uses stdin |
+| `secret set --registry-auth-endpoint` | probably v0.43.0 (behaviour described, flag not named) | — | gap |
+| `kit inspect --resolved` / `--offline`, `kit validate --offline` | v0.51.0, v0.49.1 | — | gap |
+| `kit builder status/rm/history` | — | — | gap — the shared `sbx-kit-builder` sandbox that builds v3 kits from source |
+| Global `--no-input` | v0.51.0 | — | gap — a candidate for every shell-out, turning any future prompt into an error rather than a hang. Not adopted in this sync |
+| `--format table\|json\|yaml` on read commands | v0.48.0 | — | n/a — the SDK uses `--json` |
+| `rm --json`, `stop --json`, `template rm --json` | v0.48.0 | — | n/a — those SDK paths are REST |
+| `setup ssh --auto-create` | — | — | gap |
+| `schedule` (cloud-only) | v0.53.0 notes; present at v0.51.0 | — | gap, cloud — like `attach`, `move`, `ttl`, `volume` and `--cloud` |
+| `template save --capture-mode`, `--description` (cloud) | — | — | gap, cloud |
+| New settings (46): `browser.*`, `clipboard.*`, `daemon.log.*`, `egress.*`, `kit.shortcuts.*`, `mcp.useServerNamePrefixes`, `model.*`, `no_proxy*`, `proxy`, `proxy.sshDirect`, `sandbox.fuse`, `skills.defaultMode`, `telemetry.disabled`, `tls.allowNegativeSerial`, and flags `feature.cloud-git-signing`, `feature.cloud-schedules`, `feature.diagnosticsAutoUpload*` (3), `feature.docker-hub-id-token`, `feature.governance-upsell`, `feature.gui-enabled`, `feature.sandbox-4k`, `feature.ssh-agent-context`, `feature.udp-egress` | v0.45.0–v0.51.0 | `settings` | covered — generic. Removed: `feature.sbx-api*`, `feature.shareSkills`, `feature.sandbox-nested`, `network.allow`, `network.deny` |
+| Security fixes (cp symlink escapes, daemon-socket ownership checks, OAuth redirect and interception fixes, git kit hardening, others) | v0.43.0–v0.51.0 | — | n/a — upgrade sbx. The SDK's own `CopyFrom` extractor is `os.Root`-confined and was never on the CLI's `cp` path |
+
 ## Create-request fields the daemon accepts but the CLI cannot pass
 
 `SandboxCreateRequest` carries `SecretsScope`, `PullPolicy`,
@@ -224,3 +315,10 @@ field for a v1 kit's `publishedPorts` — the CLI renames them to `ports` on
 output, so they were being decoded into nothing and silently dropped. No test
 here covered a v1 kit with ports, because the fixture is a v2 mixin. Probe a
 kind `sandbox` kit and a v1 kit next sync, not just the fixture.
+
+**The v0.51.0 sync ran the check and it passed.** No public signature changed,
+and `GOWORK=… go build ./...` plus `go vet ./internal/sandbox/` are clean in
+`sbx-swarm-node`. That repo calls `policy.RemoveRule`
+(`internal/sandbox/sdkbackend.go`'s `PolicyRemoveRule`), which fails outright
+against a v0.51.0 CLI without this sync's `--force`, so it needs the SDK release
+that carries the fix before it moves to v0.51.0.

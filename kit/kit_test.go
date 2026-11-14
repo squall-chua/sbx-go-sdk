@@ -95,29 +95,36 @@ func TestInspect_MalformedJSONIsUnexpectedFormat(t *testing.T) {
 
 func TestValidate_PassesRefAndSucceedsOnExitZero(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := fakeClient(t, argFile, "VALID: ./mykit (directory)", "", 0)
+	c := fakeClient(t, argFile, `{"reference":"./mykit","kind":"directory","valid":true,"warnings":[]}`, "", 0)
 
 	require.NoError(t, Validate(context.Background(), c, "./mykit"))
 
 	args, err := os.ReadFile(argFile)
 	require.NoError(t, err)
-	require.Contains(t, string(args), "kit validate")
+	require.Contains(t, string(args), "kit validate --json")
 	require.Contains(t, string(args), "./mykit")
 }
 
 // `sbx kit validate` exits 1 both for a refused artifact and for a missing
-// path. Only the leading "INVALID:" on stderr separates them, so that prefix
-// is what the sentinel keys on. See the ledger in ADR 0002.
-func TestValidate_InvalidPrefixMapsToErrKitRejected(t *testing.T) {
-	c := fakeClient(t, "", "", "INVALID: artifact: spec.yaml is required\nERROR: artifact validation failed", 1)
+// path. Only a "valid": false report on stdout separates them, so that is what
+// the sentinel keys on. Captured from sbx v0.51.0. See the ledger in ADR 0002.
+func TestValidate_InvalidReportMapsToErrKitRejected(t *testing.T) {
+	const report = `{
+  "reference": "/tmp/bad",
+  "kind": "directory",
+  "valid": false,
+  "error": "artifact: invalid spec.yaml: yaml: unmarshal errors:\n  line 4: field nope not found in type spec.specFileV2",
+  "warnings": []
+}`
+	c := fakeClient(t, "", report, "error: artifact validation failed", 1)
 
 	err := Validate(context.Background(), c, "./mykit")
 	require.ErrorIs(t, err, client.ErrKitRejected)
-	require.Contains(t, err.Error(), "spec.yaml is required")
+	require.Contains(t, err.Error(), "field nope not found")
 }
 
-func TestValidate_ErrorWithoutInvalidPrefixIsNotErrKitRejected(t *testing.T) {
-	c := fakeClient(t, "", "", `ERROR: kit reference "./nope": path does not exist`, 1)
+func TestValidate_ErrorWithoutReportIsNotErrKitRejected(t *testing.T) {
+	c := fakeClient(t, "", "", "error: kit path ./nope does not exist", 1)
 
 	err := Validate(context.Background(), c, "./mykit")
 	require.Error(t, err)
@@ -224,4 +231,14 @@ func TestInspect_SandboxBlockCarriesTheRelocatedManifestFields(t *testing.T) {
 	require.Equal(t, []string{"/usr/bin/agent"}, sb.Entrypoint, "was Manifest.Binary")
 	require.Equal(t, []string{"--foo", "--bar"}, sb.Command.Default, "was Manifest.RunOptions")
 	require.Contains(t, string(info.AgentInstructions), "AGENTS.md", "was Manifest.AIFilename")
+}
+
+// A report that says the kit is valid is never a rejection, even if the
+// process failed for some other reason afterwards.
+func TestValidate_ValidReportWithFailingExitIsNotErrKitRejected(t *testing.T) {
+	c := fakeClient(t, "", `{"reference":"./mykit","kind":"directory","valid":true,"warnings":[]}`, "error: something else", 1)
+
+	err := Validate(context.Background(), c, "./mykit")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, client.ErrKitRejected)
 }

@@ -44,29 +44,31 @@ type Server struct {
 }
 
 // List returns the registered MCP servers (`sbx mcp ls --json`, added in sbx
-// v0.42.0). None registered is an empty slice and a nil error. Output with no
-// "servers" key is client.ErrUnexpectedFormat, never an empty list.
+// v0.42.0). None registered is an empty slice and a nil error. Output that is
+// not a JSON array is client.ErrUnexpectedFormat, never an empty list.
+//
+// Since sbx v0.51.0 the output is a bare array, with the gateway repeated on
+// each entry; v0.42.0 wrapped it as {"gateway":…,"servers":[…]}. The CLI
+// prints [] when nothing is registered.
 func List(ctx context.Context, c *client.Client) ([]Server, error) {
 	raw, err := capture(ctx, c, "mcp", "ls", "--json")
 	if err != nil {
 		return nil, err
 	}
-	var v struct {
-		Servers *[]struct {
-			Name      string `json:"name"`
-			Type      string `json:"type"`
-			Transport string `json:"transport"`
-			Status    string `json:"status"`
-		} `json:"servers"`
+	var v *[]struct {
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		Transport string `json:"transport"`
+		Status    string `json:"status"`
 	}
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
 		return nil, fmt.Errorf("mcp ls: %w: %w", client.ErrUnexpectedFormat, err)
 	}
-	if v.Servers == nil {
-		return nil, fmt.Errorf("mcp ls: %w: no \"servers\" key in output", client.ErrUnexpectedFormat)
+	if v == nil {
+		return nil, fmt.Errorf("mcp ls: %w: output is null, not a list", client.ErrUnexpectedFormat)
 	}
 	out := []Server{}
-	for _, s := range *v.Servers {
+	for _, s := range *v {
 		out = append(out, Server{
 			Name: s.Name,
 			Type: s.Type,
@@ -306,17 +308,23 @@ func AddLocal(ctx context.Context, c *client.Client, name, command string, cmdAr
 	return run(ctx, c, append(args, cfg.args()...))
 }
 
-// Remove deletes a registered server (`sbx mcp rm NAME`). There is no
-// confirmation prompt, and removing a name that was never registered is a
-// silent success — the CLI exits 0.
+// Remove deletes a registered server (`sbx mcp rm --force NAME`). --force is
+// always passed: since sbx v0.51.0 the CLI asks for confirmation and refuses
+// outright on a non-interactive stdin.
 //
-// This removes only the local registration. Hosted OAuth credentials survive
-// it; drop those with `sbx mcp auth rm <name>`.
+// Removing a name that was never registered is an error since sbx v0.45.0:
+// the CLI exits 1 with `MCP server "NAME" not found`, returned as the raw
+// *client.CLIError. Through v0.42.1 it was a silent success.
+//
+// Since v0.51.0 the CLI also clears the server's local OAuth token
+// (`--registration-only` keeps it, and is not wrapped). Whether hosted OAuth
+// credentials survive was verified only through v0.42.1; drop them explicitly
+// with AuthRemove first if it matters.
 func Remove(ctx context.Context, c *client.Client, name string) error {
 	if name == "" {
 		return errors.New("mcp rm: name must not be empty")
 	}
-	return run(ctx, c, []string{"mcp", "rm", name})
+	return run(ctx, c, []string{"mcp", "rm", "--force", name})
 }
 
 // Load attaches an already-registered server to a running sandbox's gateway
@@ -409,8 +417,9 @@ func AuthStatus(ctx context.Context, c *client.Client) ([]AuthResult, error) {
 }
 
 // AuthRemove deletes the hosted OAuth credentials of one registered server
-// (`sbx mcp auth rm NAME`), leaving its registration in place. It returns the
-// resulting state of that server.
+// (`sbx mcp auth rm --force NAME`), leaving its registration in place. It
+// returns the resulting state of that server. --force is always passed: since
+// sbx v0.51.0 the CLI refuses on a non-interactive stdin without it.
 //
 // Removing credentials a server never had is a success, not an error: the CLI
 // reports "No local OAuth token found" and exits 0.
@@ -419,7 +428,7 @@ func AuthRemove(ctx context.Context, c *client.Client, name string) ([]AuthResul
 		return nil, errors.New("mcp auth rm: name must not be empty")
 	}
 	return decodeAuthResults(ctx, c, "mcp auth rm",
-		[]string{"mcp", "auth", "rm", name, "--format", "json"})
+		[]string{"mcp", "auth", "rm", "--force", name, "--format", "json"})
 }
 
 func decodeAuthResults(ctx context.Context, c *client.Client, what string, args []string) ([]AuthResult, error) {

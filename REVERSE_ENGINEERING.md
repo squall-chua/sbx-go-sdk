@@ -1,21 +1,100 @@
 # `sbx` CLI — Reverse Engineering Notes
 
-Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.8 binary, with DWARF).
+Reverse-engineered from `/usr/bin/sbx`. From v0.51.0 that is a **stripped** Go 1.27.3 binary: no symbol
+table and no DWARF, though the pclntab function names survive, so `strings` still recovers the op
+and handler names (§4). Up to v0.42.1 it was unstripped, with DWARF.
 
 > `docs/sbx-version-coverage.md` is the authority on which release a feature
 > shipped in — it is reconciled against upstream release notes and wired into
 > the drift gate. If a version marker below ever disagrees with that table,
 > the table wins.
 
-- **Module:** `github.com/docker/sandboxes` `v0.42.1`
+- **Module:** `github.com/docker/sandboxes` `v0.51.0`
 - **Main package:** `github.com/docker/sandboxes/cli-plugin/cmd/sandboxes`
-- **Daemon API version:** `0.28.0` (build `cc6e400a4a3ce3ce5e0b2b77b8ee352aac854c64`)
+- **Daemon API version:** `0.49.0` (build `7d55286de0c775148b985ed349f760f1eba06203`)
 - **What it is:** Docker Sandboxes — isolated micro-VM sandboxes for AI coding agents.
   Shipped both as a standalone `sbx` binary and as a `docker sandboxes` CLI plugin.
 - **Single-binary model (like docker/dockerd):** the same binary is both the CLI
   *and* the `sandboxd` daemon. The CLI re-execs itself to start the daemon.
 
-> Refreshed for **v0.42.1** (daemon api `0.26.0` → `0.28.0`). v0.40.0 and v0.41.0 were never
+> Refreshed for **v0.51.0** (daemon api `0.28.0` → `0.49.0`). This sync jumped straight from
+> v0.42.1, and the per-release attribution is in docs/sbx-version-coverage.md. The diff was taken
+> old-vs-new against the v0.42.1 binary, recovered from
+> `/var/cache/apt/archives/docker-sbx_0.42.1-…deb` with `dpkg-deb -x`.
+>
+> **The binary is stripped.** `go tool nm` fails ("no symbol section") and there is no DWARF, so
+> `dwarfgen` cannot regenerate `internal/api/types_gen.go`. The wire types were checked by
+> comparing a live `GET /sandbox/{name}` with `SandboxInfo` key by key. Five keys are new
+> (`working_dir`, `effective_working_dir`, `host_mounts`, `runtime_mounts`, `last_used_at`) and
+> none changed meaning. The REST op diff is in §3; the recipe is in §4.
+>
+> **Help output is grouped.** `sbx --help` now prints `Sandbox Commands:`, `Management Commands:`,
+> `Experimental Commands:` and `Other Commands:` in place of one `Available Commands:` block. A walker
+> keyed on the old header finds only the root. Match `^[A-Za-z ]*Commands:$`. Per-agent
+> subcommands of `create` (`create claude`, …) are gone; agent names are a positional, and the
+> lone `create gemini` subcommand remains (v0.53.0 retires the name).
+>
+> What broke a shell-out client, and how each was settled (all verified live):
+>
+> - **`diagnose -o json` is an unknown flag.** Use `--json` (an alias of `--format json`). Same report.
+> - **`logout --yes` is an unknown flag**; it is `--force` (v0.48.0). v0.53.0 reverses this to `--yes`.
+> - **`mcp ls --json` is a bare array**, each entry carrying its own `gateway` object, and `[]` when
+>   empty. The `{gateway, servers}` wrapper is gone.
+> - **`kit validate` lost its `INVALID:` stderr marker.** Stderr now reads `error: artifact validation
+>   failed` plus the reason. `kit validate --json` prints `{reference, kind, valid, error?, warnings}`
+>   on stdout for a refusal, and nothing for a usage error (missing path), which makes `valid` the
+>   classifier. A v3 build's progress block goes to stderr, so stdout stays clean JSON.
+> - **A real prune no longer prints `Sandbox 'X' removed`.** That string is absent from the binary,
+>   and so is `No stopped sandboxes to prune.` with its period (`…to prune` survives without it).
+>   `sbx rm` now prints `Removed sandbox NAME`. The real-prune text was not captured, because
+>   probing it removes every stopped sandbox on the host. The SDK avoids the question, see `Prune`.
+>   In `prune --dry-run --json`, each `would_remove[]` entry gained `mounts`;
+>   `skipped_unknown_stop` was already there.
+> - **Removals confirm and refuse without a TTY**: `mcp rm`, `mcp auth rm`, `policy rm network`
+>   and `template rm` all print `stdin is not a terminal; pass --force to skip the confirmation`
+>   and exit 1. `--force` works on each; `mcp auth rm --force --format json` keeps its
+>   `[{server_name, status}]` shape.
+> - **`mcp rm` also clears the server's local OAuth token** ("No local OAuth token found for MCP
+>   server …" on a skip-auth registration). `--registration-only` exists to keep it.
+>
+> **Kit spec v3.** A v3 kit is a BuildKit frontend document: `spec.yaml`'s first line must be
+> `# syntax=docker/sandbox-kit:3` (frontend `sandbox-kit 3.0.0-m.11` here). Without it the build
+> parses the file as a Dockerfile and fails on `schemaVersion:`. Source-form builds run inside a
+> shared builder sandbox, `sbx-kit-builder`, managed by `sbx kit builder`. The descriptor
+> (`spec.Descriptor`) is not v2 renumbered, and these were probed against it:
+>
+> - There is no `name`. Inspect reports the directory name as `name`, and `displayName` is a separate key.
+> - There is no `environment` or `env`; both are rejected. An `args:` map of name → `{default}` validates
+>   (`required: true` also exists, per a binary error string). `--kit-arg` calls these arguments the
+>   kit declares. Whether, or how, they reach the sandbox environment was **not** verified.
+> - `version` is accepted but not reported by inspect.
+> - Behaviour comes from `capabilities: [{type: com.docker.sandbox/<cap>@N, config: …}]`. Types
+>   seen in the binary include `network-policy@1`/`@2`, `lifecycle@1`, `host-mount@1`, `port@1`,
+>   `volume@1`, `ssh-agent@1`, `agent-sessions@1`, `long-running@1`, `acp@1`, `api@1` and `sbx@1`.
+>   `network-policy@1` takes `config.runtime.allow: [...]`, which inspect still reports as
+>   `permissions.network.allow`.
+>
+> The built-in agents are published v3 sandbox kits (`docker.io/sbx/<agent>`; `kit inspect --json
+> docker.io/sbx/shell:latest` gives `schemaVersion "3"`, `kind sandbox`, a digest-pinned image).
+> **A v1/v2 mixin cannot join one**: `cannot mix v3 kits with v1/v2 kits in one sandbox`. **`kit add`
+> asks for approval** of any permission beyond what the sandbox was granted (`+
+> network.runtime.allow: api.example.com`), and with no TTY refuses with `stdin is not a terminal;
+> run this command in a terminal to answer the prompt`. It has no pre-approve flag. **`kit sign` cannot
+> load a v3 kit**: it decodes with `spec.SpecFile` and rejects `capabilities`.
+>
+> New commands: `schedule` (cloud), `policy approval ls|inspect|respond`, `policy check http`,
+> `policy refresh`, `mcp unload`, `kit builder status|rm|history (ls|inspect|logs|trace|export|rm)`,
+> and `settings ls`, now visible, with `list` kept as an alias. The global flags `--no-input` and
+> `--version` are new, and `--cloud-api-url` is gone. `--format table|json|yaml` reaches nearly every
+> read command, with `--json` as its alias. Flag changes on wrapped or nearby commands are in §1.
+>
+> Settings: 78 keys with `--all`. 46 are new, among them `kit.shortcuts.<agent>` (maps an agent
+> name to a kit reference), `skills.defaultMode`, `browser.enabled`, `clipboard.*`, `daemon.log.*`,
+> `egress.*`, `model.*`, `proxy`/`no_proxy*`, `sandbox.fuse` and `telemetry.disabled`. Removed:
+> the whole `feature.sbx-api*` family, `feature.shareSkills`, `feature.sandbox-nested`,
+> `network.allow` and `network.deny`.
+>
+> Earlier, for **v0.42.1** (daemon api `0.26.0` → `0.28.0`). v0.40.0 and v0.41.0 were never
 > released; v0.42.1 is v0.42.0 plus one proxy fix. **The CLI still calls the same 46 REST ops**:
 > the `sandboxapi.New<Op>Request` set is identical to v0.39.0's, and re-running `dwarfgen` gives
 > only the known artifacts, so no wire type moved. The API bump is server-side — see the new
@@ -155,7 +234,8 @@ Reverse-engineered from `/usr/bin/sbx` (unstripped Go 1.26.8 binary, with DWARF)
 Top-level CLI framework is **cobra**. Root command `sbx` launches an interactive
 TUI (bubbletea) when run with no args; otherwise it dispatches subcommands.
 
-Global flag: `-D, --debug`.
+Global flags: `-D, --debug`; from v0.42.0 `--cloud`; from v0.51.0 `--no-input` (never prompt — a
+command that needs an answer fails and names the command to run) and `--version`.
 
 ### Visible commands
 ```
@@ -170,10 +250,13 @@ sbx create [flags] AGENT PATH [PATH...]       # create a sandbox for an agent
       (--env/-e and --env-file are NEW in v0.39.0; --env takes KEY=VALUE, or a bare
        KEY to inherit the caller's value. This is what finally reaches the
        SandboxCreateRequest.Environment field)
-      (--publish/-p is NEW in v0.37.0; --deny-network and --static-mcp are NEW in v0.38.0;
-       --no-share-skills exists but is gated off by a remote feature flag, so it is absent
-       from --help on this host)
-sbx diagnose [-o json|github-issue] [--upload]  # diagnose install issues (-o/--upload NEW in v0.38.0)
+      (--publish/-p is NEW in v0.37.0; --deny-network and --static-mcp are NEW in v0.38.0)
+      v0.51.0: --quiet/-q is GONE (→ --no-progress, v0.48.0). NEW: --skills off|readonly|readwrite
+       (v0.43.0; --no-share-skills is its hidden, deprecated alias for off), --mount HOST:SANDBOX_PATH
+       (v0.50.0, kit host-mount@1 paths), --pull always|missing|never, --no-progress. PATH args take
+       PATH[:TARGET][:ro]. No per-agent `create <agent>` subcommands any more except `create gemini`
+sbx diagnose [--format table|json|yaml|github-issue] [--json] [--upload]
+    (-o/--output, NEW in v0.38.0, was REPLACED by --format in v0.48.0 and is now an unknown flag)
     (exits NON-ZERO when any check fails, and still prints the whole report)
 sbx env COMMAND                               # NEW in v0.39.0 (experimental) .sbxenv.yaml environments
     env create [PATH...] [--clone] | run [PATH...] [--clone] [-d/--detached]
@@ -189,11 +272,17 @@ sbx kit COMMAND                               # (experimental) kit artifacts
     kit verify REFERENCE [--key PEM] [--certificate-identity[-regexp] I]         # NEW in v0.39.0
         [--certificate-oidc-issuer[-regexp] U] [--insecure-ignore-tlog]
     kit provenance REFERENCE [same verification flags as verify]                 # NEW in v0.39.0
+    kit inspect [--resolved] [--offline] | validate [--offline] [--json]          # v0.49.1/v0.51.0
+    kit add SANDBOX REF [--kit-arg K=V] [--kit-args-file F]
+        (v0.51.0: no v1/v2 mixin into a v3 sandbox; asks approval for new permissions, no TTY → refuse)
+    kit builder status | rm [-f] | history ls|inspect|logs|trace|export|rm [--yes]   # NEW
+        (the shared sbx-kit-builder sandbox that builds v3 kits from source; its engine is the cache)
     (signing is keyless via Fulcio+Rekor unless --key; a local directory gets a
      kit.sig.bundle sidecar, an OCI reference gets an OCI referrer. Every push
      also attaches a SLSA provenance attestation, unsigned unless --sign)
 sbx login [flags]                             # sign in to Docker
-sbx logout [flags]                            # stop sandboxes + sign out
+sbx logout [-f/--force]                       # stop sandboxes + sign out
+    (--yes became --force in v0.48.0 and is now an unknown flag; v0.53.0 reverts to --yes)
 sbx ls [flags]                                # list sandboxes
 sbx mcp COMMAND                               # NEW in v0.38.0 — register/manage MCP servers
     mcp add NAME (--url URL | --command CMD [--args a,b] [--dir D])
@@ -208,8 +297,15 @@ sbx mcp COMMAND                               # NEW in v0.38.0 — register/mana
      only `mcp inspect` still prints it. Columns are separated by a single
      space in places, so a two-space gutter rule does not split them.)
     mcp load NAME --sandbox SANDBOX            # attach to a RUNNING sandbox's gateway
+    mcp unload NAME --sandbox SANDBOX          # NEW (v0.48.0) — detach without restarting the agent
+    mcp rm NAME [-f/--force] [--registration-only]   # v0.51.0: confirms, refuses with no TTY;
+        (a plain rm also clears the local OAuth token; --registration-only keeps it)
+    mcp add v0.51.0 extras: --header 'Name: value' (repeatable, ${placeholder} from secrets),
+        --resource URI, --callback-port N, --disable-http2
+    (v0.51.0: `mcp ls --json` is a BARE ARRAY, each entry with its own gateway object)
     mcp auth [NAME|--all] [--scope S]... [--format text|json] [--verbose]
-    mcp auth status [NAME|--all] [--format text|json] | auth rm [NAME|--all]
+    mcp auth status [NAME|--all] [--format text|json] | auth rm [NAME|--all] [-f/--force]
+        (auth rm confirms at v0.51.0 and refuses with no TTY)
 sbx policy COMMAND                            # manage sandbox network/egress policies
     policy allow network [--sandbox S] RESOURCES
     policy deny  network [--sandbox S] RESOURCES
@@ -219,13 +315,20 @@ sbx policy COMMAND                            # manage sandbox network/egress po
     policy init <allow-all|balanced|deny-all>   # renamed from set-default in v0.34.0 (kept as hidden deprecated alias)
     policy check network [--sandbox S] [--json] [--verbose] TARGET   # NEW in v0.35.0
     policy inspect <policy-or-rule>             # NEW in v0.35.0 (by policy/rule ID or name)
+    policy check http [--sandbox S] [--method M] URL   # NEW (v0.51.0)
+    policy refresh                              # NEW (v0.49.1) — re-fetch governance now
+    policy approval ls [-q] | inspect ID | respond ID --option O   # NEW — pending user prompts
+    v0.51.0 on allow/deny/rm network: --protocol tcp|udp (UDP, v0.45.0) and HTTP scoping
+        --method/--path/--query (repeatable --query name=value, v0.50.0). rm network gained
+        -f/--force and refuses with no TTY. policy ls gained --created-via, --protocol, -q
 sbx ports SANDBOX [flags]                     # manage published ports
 sbx prune [--dry-run] [--filter since=DURATION] [-f]   # NEW in v0.39.0 — remove stopped sandboxes
 sbx reset [-f] [--preserve-secrets]           # reset all sandboxes + clean state
 sbx rm [SANDBOX...] [--all] [-f/--force]       # remove sandboxes; --all is NEW in v0.37.0
-sbx run [flags] SANDBOX | AGENT [PATH...] [-- AGENT_ARGS...]   # run/attach an agent
-      flags: as create, plus --publish/-p (NEW) and a hidden --detached/-d
-      (--detached prints the sandbox ID and exits without an interactive session)
+sbx run [flags] [AGENT|SANDBOX_KIT] [PATH...] [-- AGENT_ARGS...]   # run/attach an agent
+      flags: as create, plus -d/--detach (public since v0.48.0; replaced the hidden --detached,
+      which is now rejected — prints the sandbox ID and exits), --rm (v0.47.0), -w/--workdir
+      (v0.51.0; per session, so it works on a re-attach), --new and --detach-keys (cloud only)
 sbx secret COMMAND                            # manage stored secrets
     secret ls [-g|--sandbox S] [--service SVC] | rm [SERVICE] [--sandbox S]
         | rm --placeholder PH | rm [--all-sandboxes] --registry REF
@@ -234,6 +337,7 @@ sbx secret COMMAND                            # manage stored secrets
         [--no-verify] [--show-error] [-t/--token V] [-f/--force]     # all NEW in v0.39.0
         | set [--all-sandboxes|--sandbox S] --registry HOST --password-stdin [--username U]
         | set-custom [--sandbox S] --host H... --env E --value V [--placeholder P]
+        (v0.51.0 set-custom adds --value-stdin, --header, --name; set adds --registry-auth-endpoint)
     secret import [SERVICE] [--all] [--dry-run] [-f]   # NEW in v0.35.0
     (the positional SERVICE and --all are not new in v0.39.0 — the v0.37.0
      recon just never recorded them. The SDK has emitted both since then.)
@@ -245,6 +349,7 @@ sbx secret COMMAND                            # manage stored secrets
 sbx setup                                     # (experimental) detect host config + prepare sbx
     setup ssh [--alias PATTERN]                 # NEW path in v0.37.0 for `sbx ssh setup` (both still work)
     setup ssh remove                            # NEW in v0.39.0 — undo what `setup ssh` wrote
+sbx schedule ...                              # NEW (cloud-only) — scheduled cloud sandbox runs
 sbx skills COMMAND                            # NEW in v0.37.0 (experimental) shared agent skills store
     skills import [--dry-run] [-f/--force]      # copy host skill dirs into the shared store
     skills ls                                   # NEW in v0.39.0 — list the store's skill folders
@@ -252,13 +357,20 @@ sbx ssh [flags]                               # HIDDEN again in v0.39.0 (still r
     ssh setup [--alias PATTERN]                 # hidden alias of `sbx setup ssh`; same flags
 sbx stop SANDBOX [SANDBOX...]                  # stop without removing
 sbx template COMMAND                          # manage sandbox templates
-    template load FILE | ls [--json] | rm TAG|ID | save SANDBOX TAG [-o FILE]
+    template load FILE | ls [--json] | rm TAG|ID [-f/--force] | save SANDBOX TAG [-o FILE]
+        (rm confirms at v0.51.0 and refuses with no TTY; save gained --capture-mode and
+         --description, both cloud only)
         (-o on save, which also exports the image to a tar, is NEW in v0.39.0)
 sbx version                                   # version info
 sbx completion bash|zsh|fish|powershell
 ```
 
 ### Hidden commands (not in `--help`, but registered)
+
+At v0.51.0 `daemon` and `settings` are listed again under `Management Commands`, so only
+`inspect` and `ssh` are still hidden (`sbx inspect` returns to the help in v0.53.0). The
+flags below stay accurate.
+
 ```
 sbx daemon                                    # manage the sandboxd daemon
     daemon start [-d/--detach] [--policy allow-all|balanced|deny-all]
@@ -270,13 +382,16 @@ sbx inspect SANDBOX [--json]                  # human-readable sandbox summary
 sbx settings                                  # persistent settings (JSON, hot-reloaded ~5s)
     settings get [--json] | list [--all] [--json] [--no-trunc] | set | unset
     (--all is NEW in v0.38.0 and is the only way to list feature flags)
+    (v0.51.0: `settings` is VISIBLE again, and `ls` is the primary name (v0.48.0); `list` and
+     `--all` still work but are hidden. Output is still a bare array)
 ```
 `credentials*` symbols back the user-facing `secret` command. `mcp*` symbols were
 internal-only through v0.37.0; v0.38.0 promoted them to the visible top-level `sbx mcp`
 command. `save*` symbols remain internal (subcommands of `template`/`run`).
 
 Agents supported by `create`/`run`: **claude, codex, copilot, cursor, devin, docker-agent
-(alias cagent), droid, gemini, kiro, opencode, shell**.
+(alias cagent), droid, gemini, kiro, opencode, shell**. From v0.51.0 each resolves to a published
+v3 kit, `docker.io/sbx/<agent>:latest`, unless a `kit.shortcuts.<agent>` setting redirects it.
 
 ---
 
@@ -398,6 +513,23 @@ Base: `http://localhost` over the unix socket. Echo router. `{name}` = sandbox i
 The last six were first mapped at v0.39.0 but are **not new** — every matching op symbol was
 already present at v0.38.0. They had simply never been probed. The SDK calls none of them.
 
+**At v0.51.0** (diffed against the v0.42.1 binary; both sets read with `strings`, see §4):
+
+- The CLI calls **50** REST ops, up from 46. The command named beside an op is inferred from the
+  op's name and the new flags, not traced. New: `GetImageLocalMetadata`, `GetMcpGateway`,
+  `GetSandboxDebugVM`, `RemoveMcpGatewayServer` (`mcp unload`), `RespondToUserPrompt`
+  (`policy approval respond`) and `SetWorkingDirectory` (`run --workdir`). Gone:
+  `StartMcpGateway` and `StopMcpGateway`. The SDK called none of the removed ones.
+- The server registers **66** handlers, up from 61. New: `GetSandboxDebugVM`, `PostSandboxDebugVM`,
+  `DeleteSandboxDebugVM`, `GetImageLocalMetadata`, `RemoveMcpGatewayServer`,
+  `RequestSandboxPorts` and `SetWorkingDirectory`. Gone: `StartMcpGateway` and `StopMcpGateway`.
+  Paths for the new handlers were not probed.
+- `GET /daemon/health` gained `runtime_backend` (a bool, `false` here).
+- `GET /sandbox/{name}` gained `working_dir`, `effective_working_dir`, `host_mounts`,
+  `runtime_mounts` and `last_used_at`, none of them in `api.SandboxInfo` yet. `sbx inspect --json`
+  gained `created_version`, `host_mounts`, `runtime_mounts`, `working_dir` and
+  `effective_working_dir`.
+
 At v0.42.1 the server registers 61 handlers
 (`go tool nm /usr/bin/sbx | grep -oE 'sandboxapi\.\(\*ServerInterfaceWrapper\)\.[A-Za-z]+'`).
 Eight have no row above: `AttachAgentSession`, `AttachSSH`, `SessionHold`, `ExportImage`,
@@ -434,7 +566,8 @@ is not known. The CLI calls none of them — its op set did not change.
   CLI. The SDK's `mcp` package therefore shells out and parses `mcp ls` / `mcp inspect`, which have
   no `--json` flag. `mcp auth status` does take `--format json`.
 - `sbx mcp rm <unregistered-name>` exits **0** — a silent no-op, not an error. `sbx mcp inspect
-  <unregistered-name>` exits 1.
+  <unregistered-name>` exits 1. (**Changed in v0.45.0:** `mcp rm` of an unregistered name exits 1
+  with `MCP server "NAME" not found`, verified at v0.51.0.)
 - The `?include_inactive=true` question on `GET /policy/network/rules` is still unresolved: the
   response is byte-identical with and without it.
 
@@ -650,12 +783,22 @@ check around it, and shelling out gets both for free.
 
 ```bash
 go version -m /usr/bin/sbx                       # module + deps
-go tool nm /usr/bin/sbx | grep docker/sandboxes  # symbol map
+go tool nm /usr/bin/sbx | grep docker/sandboxes  # symbol map — FAILS from v0.51.0 (stripped)
+# Stripped binary: the pclntab names survive, so strings still gives the op and handler sets.
+strings -n 8 /usr/bin/sbx | grep -oE 'sandboxapi\.New[A-Za-z0-9]+Request' | sort -u        # CLI ops
+strings -n 8 /usr/bin/sbx | grep -oE 'sandboxapi\.\(\*ServerInterfaceWrapper\)\.[A-Za-z]+' | sort -u
+# The previous release for diffing: apt keeps the .debs.
+dpkg-deb -x /var/cache/apt/archives/docker-sbx_<OLD>-1~ubuntu.24.04~noble_amd64.deb /tmp/old
 sbx --help ; sbx <cmd> --help                    # cobra command tree
-# walk it: for each "Available Commands" block, recurse. Hidden commands
-# (daemon, inspect, settings, ssh) never appear — ask for them by name.
+# walk it: for each "...Commands:" block (v0.51.0 groups them as Sandbox / Management /
+# Experimental / Other — match ^[A-Za-z ]*Commands:$), recurse. Hidden commands
+# (inspect, ssh at v0.51.0) never appear — ask for them by name.
+# Never probe a real `sbx prune -f` on a shared host: it removes every stopped sandbox.
 sbx -D daemon status                             # prints socket + log paths
 SOCK=~/.local/state/sandboxes/sandboxes/sandboxd/sandboxd.sock
+# Wire types without DWARF: compare a live object's keys with the generated type, e.g.
+curl -s --unix-socket "$SOCK" http://localhost/sandbox/NAME | python3 -c \
+  'import json,sys; print("\n".join(sorted(json.load(sys.stdin))))'
 curl -s --unix-socket "$SOCK" http://localhost/daemon/health
 curl -s --unix-socket "$SOCK" http://localhost/daemon/info
 curl -s --unix-socket "$SOCK" http://localhost/daemon/diagnostics

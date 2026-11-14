@@ -14,9 +14,7 @@ package kit
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
@@ -116,7 +114,7 @@ func Inspect(ctx context.Context, c *client.Client, ref string) (Info, error) {
 }
 
 // Validate reports whether ref is a well-formed kit artifact
-// (`sbx kit validate`). It returns nil when the CLI accepts the artifact.
+// (`sbx kit validate --json`). It returns nil when the CLI accepts the artifact.
 //
 // ref may be a local directory, a ZIP file, or a git repository. Unlike
 // Inspect it may NOT be an OCI reference: the CLI refuses those for
@@ -124,10 +122,12 @@ func Inspect(ctx context.Context, c *client.Client, ref string) (Info, error) {
 // restriction is documented rather than enforced here — the CLI is the
 // authority on what a reference is.
 //
-// A refusal returns an error wrapping client.ErrKitRejected. The CLI marks
-// every refusal with an "INVALID:" line, so that sentinel covers both a
-// malformed spec.yaml and a source that kit.allowedSources forbids; read the
-// message to tell which.
+// A refusal returns an error wrapping client.ErrKitRejected, carrying the
+// CLI's reason. A refusal is a report with "valid": false on stdout, which
+// covers a malformed spec.yaml and, for a kit spec v3, a failed build. Any
+// other failure — a missing path, a bad flag — prints no report and returns
+// the raw *client.CLIError. (Through v0.42.1 the CLI marked a refusal with an
+// "INVALID:" line on stderr instead; v0.51.0 dropped it.)
 //
 // Warnings are not reported. A kit can be valid and still warn — for example
 // "field \"mixins\" is accepted but not yet implemented" — and those warnings
@@ -137,10 +137,14 @@ func Validate(ctx context.Context, c *client.Client, ref string) error {
 	if err != nil {
 		return err
 	}
-	if _, err = r.Capture(ctx, nil, "kit", "validate", ref); err != nil {
-		var ce *client.CLIError
-		if errors.As(err, &ce) && strings.HasPrefix(strings.TrimSpace(ce.Stderr), "INVALID:") {
-			return fmt.Errorf("%w: %s", client.ErrKitRejected, strings.TrimSpace(ce.Stderr))
+	out, err := r.Capture(ctx, nil, "kit", "validate", "--json", ref)
+	if err != nil {
+		var report struct {
+			Valid *bool  `json:"valid"`
+			Error string `json:"error"`
+		}
+		if json.Unmarshal([]byte(out), &report) == nil && report.Valid != nil && !*report.Valid {
+			return fmt.Errorf("%w: %s", client.ErrKitRejected, report.Error)
 		}
 		return err
 	}
