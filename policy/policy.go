@@ -1,6 +1,6 @@
 // Package policy manages sandbox access policies. Listing and checking use the
 // daemon REST API (GET /policy/network/rules, POST /policy/network/check,
-// GET /network/log); rule mutation and inspection shell out to `sbx policy`,
+// GET /policy/network/log); rule mutation and inspection shell out to `sbx policy`,
 // which has no REST equivalent for those operations.
 package policy
 
@@ -62,9 +62,11 @@ func RemoveRule(ctx context.Context, c *client.Client, scope, resource string) e
 	return run(ctx, c, args...)
 }
 
-// Reset clears all policies back to defaults.
+// Reset clears all policies back to defaults. --force is always passed: the
+// CLI asks for confirmation, and since sbx v0.48.0 a prompt with no terminal
+// is a refusal rather than an answer.
 func Reset(ctx context.Context, c *client.Client) error {
-	return run(ctx, c, "policy", "reset")
+	return run(ctx, c, "policy", "reset", "--force")
 }
 
 // capture runs an sbx subcommand and returns its stdout text.
@@ -198,16 +200,18 @@ type LogEntry struct {
 	CountSince int    `json:"count_since"`
 }
 
-// PolicyLog is the /network/log response.
+// PolicyLog is the /policy/network/log response.
 type PolicyLog struct {
 	BlockedHosts []LogEntry `json:"blocked_hosts"`
 	AllowedHosts []LogEntry `json:"allowed_hosts"`
 }
 
-// Log returns the proxy's allowed/blocked-host log (REST GET /network/log).
+// Log returns the proxy's allowed/blocked-host log (REST GET /policy/network/log).
+// The SDK used to request /network/log, which this daemon answers with a 404;
+// the CLI has used /policy/network/log since at least v0.42.1.
 func Log(ctx context.Context, c *client.Client) (*PolicyLog, error) {
 	var pl PolicyLog
-	if err := c.Transport().DoJSON(ctx, http.MethodGet, "/network/log", nil, &pl); err != nil {
+	if err := c.Transport().DoJSON(ctx, http.MethodGet, "/policy/network/log", nil, &pl); err != nil {
 		return nil, client.MapError("policy-log", err)
 	}
 	return &pl, nil
