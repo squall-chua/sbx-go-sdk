@@ -87,8 +87,8 @@ func TestSummary(t *testing.T) {
 	require.Contains(t, string(args), "inspect --json sdk-inspect-probe")
 }
 
-// Captured from `sbx inspect --json` at sbx v0.51.0, trimmed to the keys
-// Summary gained there. working_dir is set by hand: every live probe saw "",
+// Assembled from live `sbx inspect --json` output at sbx v0.51.0, with the
+// host_mounts of the REST capture in internal/api. working_dir is set by hand: every live probe saw "",
 // which cannot tell the key from its absence.
 const summaryV051 = `{"name":"p6-ro","agent":"shell","state":"running","workspace":"/tmp/p6ws",
   "created_version": "v0.51.0",

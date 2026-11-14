@@ -522,8 +522,8 @@ fmt.Println(info.Status, info.Workspace, info.Ports)
 ```
 
 `Inspect` is REST and cheap. When you need what the daemon's own record does *not* carry — the
-auth mode, the injected secrets, the count of active sessions, or whether an MCP gateway is
-configured — use `Summary`, which shells out to `sbx inspect --json`:
+auth mode, the injected secrets, the count of active sessions, whether an MCP gateway is
+configured, or the sbx release that created the sandbox — use `Summary`, which shells out to `sbx inspect --json`:
 
 ```go
 s, _ := sb.Summary(ctx)

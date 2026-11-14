@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Captured from GET /sandbox/{name} at sbx v0.51.0 (daemon api 0.49.0), for a
-// sandbox with a workspace and a read-only additional workspace. Trimmed to
-// the keys typed since then.
+// Assembled from live GET /sandbox/{name} responses at sbx v0.51.0 (daemon api
+// 0.49.0): host_mounts is from a sandbox with a read-only additional
+// workspace, last_used_at from another; "id" is made up.
 const sandboxInfoV051 = `{
   "id": "x", "name": "p6-ro", "status": "running", "workspace": "/tmp/p6ws",
   "working_dir": "",

@@ -59,11 +59,13 @@ type SandboxInfo struct {
 	Agent                *string                          `json:"agent,omitempty"`
 	CreatedAt            *time.Time                       `json:"created_at,omitempty"`
 	CredentialSources    *map[string]CredentialSourceInfo `json:"credential_sources,omitempty"`
-	// EffectiveWorkingDir is where commands start in the sandbox: the
-	// workspace, or /home/agent/workspace without one. Hand-typed, v0.51.0.
+	// EffectiveWorkingDir is where commands start in the sandbox (`sbx exec
+	// NAME pwd` printed it in a probe): the workspace, or
+	// /home/agent/workspace without one. Hand-typed, v0.51.0.
 	EffectiveWorkingDir *string `json:"effective_working_dir,omitempty"`
-	// HostMounts lists every host directory bound in, the workspace and any
-	// additional workspaces included. Hand-typed, v0.51.0.
+	// HostMounts lists host directories bound in. Probes saw the workspace
+	// and additional workspaces; --mount paths and the skills store were not
+	// checked. Hand-typed, v0.51.0.
 	HostMounts *[]HostMount       `json:"host_mounts,omitempty"`
 	Id         string             `json:"id"`
 	Labels     *map[string]string `json:"labels,omitempty"`
@@ -80,8 +82,8 @@ type SandboxInfo struct {
 	SourceRepoDir *string            `json:"source_repo_dir,omitempty"`
 	Status        string             `json:"status"`
 	StoppedAt     *time.Time         `json:"stopped_at,omitempty"`
-	// WorkingDir is the explicitly configured working directory; "" when none
-	// is set, which is all any probe saw. Hand-typed, v0.51.0.
+	// WorkingDir is "" in every probe, including after a completed `run -w`,
+	// so what sets it is unknown. Hand-typed, v0.51.0.
 	WorkingDir *string          `json:"working_dir,omitempty"`
 	Workspace  string           `json:"workspace"`
 	Worktree   *SandboxWorktree `json:"worktree,omitempty"`

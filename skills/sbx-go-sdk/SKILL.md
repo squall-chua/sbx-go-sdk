@@ -125,8 +125,8 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   failure, so treating the exit code as an error would drop the diagnosis. Branch on `d.OK()` or
   `d.Summary.Fail`, never on the error alone.
 - **`sb.Inspect` vs `sb.Summary`.** `Inspect` is the daemon's REST record. `Summary`
-  (`sbx inspect --json`, shell-out) is the only source of `AuthMode`, `Secrets`, `Sessions` and
-  `MCPGateway`. Check `Summary.Sessions` before reaching for `Remove(WithForce())`.
+  (`sbx inspect --json`, shell-out) is the only source of `AuthMode`, `Secrets`, `Sessions`,
+  `MCPGateway` and `CreatedVersion`. Check `Summary.Sessions` before reaching for `Remove(WithForce())`.
 - **`secret.SetCustom` is experimental.** It, `secret.SetToken` and `SetRegistry` all write the
   secret to the child process's stdin (`set-custom --value-stdin` since v0.51.0), so it never
   appears in the process list.
