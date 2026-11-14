@@ -140,8 +140,8 @@ REVERSE_ENGINEERING.md §3.
 | `create` with no workspace path | v0.42.0 | — | gap — `sandbox.Create` still requires `WithWorkspace` |
 | Sandbox kit reference as the agent positional | v0.42.0 | — | gap, unverified — `WithAgent` passes the string through, but the SDK builds the default sandbox name from it |
 | New `create` / `run` flags: `--volume`, `--ttl`, `--on-timeout`, `--platform`, `--image-ref`, `--allow-network`, `--kit-arg`, `--kit-args-file`; `run --new` | v0.42.0 | — | gap |
-| New commands: `attach`, `move`, `ttl`, `volume`, `skills add` / `rm` / `update`, `template inspect`, `env plan` | v0.42.0 | — | gap |
-| Global `--cloud` / `--cloud-api-url` (Docker Cloud Sandboxes) | v0.42.0 | — | gap |
+| New commands: `attach`, `move`, `ttl`, `volume`, `skills add` / `rm` / `update`, `template inspect`, `env plan` | v0.42.0 | — | gap for `skills add` / `rm` / `update`, `template inspect` and `env plan`. `attach`, `move`, `ttl` and `volume` are n/a, cloud-only — see the `schedule` row |
+| Global `--cloud` / `--cloud-api-url` (Docker Cloud Sandboxes) | v0.42.0 | — | n/a — the SDK has no cloud path; see the `schedule` row. `--cloud-api-url` was later removed |
 | `mcp add --no-scope`; scope sets in `mcp auth status` | v0.42.0 | — | gap — `AuthResult`'s new fields are not probed; that needs a granted credential |
 | `sbx env`: `sbxenv.yaml`, the plan and prompt, an `args:` block | v0.42.0 | — | n/a — `sbx env` is still a gap from v0.39.0 |
 | Sandbox Docker volume 50 GB → 10 GB | v0.42.0 | `settings.Set` | n/a — `DOCKER_SANDBOXES_DOCKER_SIZE` or the new `sandbox.disk.dockerVolume` setting |
