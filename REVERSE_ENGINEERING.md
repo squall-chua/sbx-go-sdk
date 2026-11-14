@@ -324,6 +324,16 @@ sbx policy COMMAND                            # manage sandbox network/egress po
     v0.51.0 on allow/deny/rm network: --protocol tcp|udp (UDP, v0.45.0) and HTTP scoping
         --method/--path/--query (repeatable --query name=value, v0.50.0). rm network gained
         -f/--force and refuses with no TTY. policy ls gained --created-via, --protocol, -q
+        Probed at v0.51.0: RESOURCES is ONE positional; a second is an error ("unexpected
+        second argument … the sandbox name is no longer positional"); `a,b` makes one rule
+        per host, with or without --method. Defaults: allow → [tcp], deny → [tcp,udp]. A UDP
+        rule is saved with a warning while feature.udp-egress is off. rm --resource drops a
+        host's tcp and udp rules together (rm has no --protocol). An HTTP rule comes off only
+        with its exact --method, --path and --query; less is "rule not found". --query without
+        --method is refused. REST rule rows now carry actions (net:connect:tcp|udp,
+        http:request:<verb>), methods, http_targets[{host,path,query[{name,value_pattern}],
+        query_match}], layer, sandbox_id, provenance.created_via; a sandbox-scoped row has
+        scope/applies_to "sandbox:NAME" and origin "scoped"
 sbx ports SANDBOX [flags]                     # manage published ports
 sbx prune [--dry-run] [--filter since=DURATION] [-f]   # NEW in v0.39.0 — remove stopped sandboxes
 sbx reset [-f] [--preserve-secrets]           # reset all sandboxes + clean state

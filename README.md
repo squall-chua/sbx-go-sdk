@@ -320,6 +320,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Feature | `sbx` | Since | SDK | |
 | --- | --- | --- | --- | --- |
 | Allow / deny / remove a rule | `policy` | v0.32.0 | `policy.Allow`, `Deny`, `RemoveRule` | ✅ |
+| UDP and HTTP rules | `--protocol`, `--method`, `--path`, `--query` | v0.45.0–v0.50.0 | `policy.AllowRule`, `DenyRule`, `RemoveRuleWith` | ✅ removing an HTTP rule needs its exact method, path and query (see `PolicyRule.HTTPTargets`); a UDP rule is inert unless `feature.udp-egress` is on |
 | Reset rules, read the proxy log | `policy reset`, `policy log` | v0.32.0 | `policy.Reset`, `policy.Log` | ✅ |
 | Set the default profile | `policy init` | v0.34.0 | `policy.SetDefault` | ✅ renamed from `set-default` in v0.34.0 |
 | List rules | `policy ls` | v0.32.0 | `policy.List`, `policy.ListRaw` | ✅ REST as of v0.37.0, always `type=all` |
@@ -692,6 +693,9 @@ _ = policy.SetDefault(ctx, c, "balanced")            // "allow-all" | "balanced"
 _ = policy.Allow(ctx, c, "", "api.github.com")       // global allow
 _ = policy.Deny(ctx, c, "review-bot", "evil.test")   // per-sandbox deny
 _ = policy.RemoveRule(ctx, c, "review-bot", "evil.test")  // resource selector required
+get := []policy.RuleOption{policy.WithMethods("GET"), policy.WithPath("/v1/**")}
+_ = policy.AllowRule(ctx, c, "review-bot", []string{"api.example.com"}, get...) // HTTP rule
+_ = policy.RemoveRuleWith(ctx, c, "review-bot", "api.example.com", get...)      // same options to remove
 _ = policy.Reset(ctx, c)
 
 rules, _ := policy.List(ctx, c, "")                  // []policy.PolicyRule (REST, always type=all)

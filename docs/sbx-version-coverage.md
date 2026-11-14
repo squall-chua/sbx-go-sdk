@@ -218,8 +218,9 @@ retires the `gemini` agent name and removes `--detach` and `--privileged` from
 | `policy approval ls/inspect/respond` | — (`ls -q` in v0.49.1) | — | gap — backed by `RespondToUserPrompt`, which the CLI now calls |
 | `policy check http` | v0.51.0 | — | gap |
 | `policy refresh` | v0.49.1 | — | gap — `POST /policy/refresh` was already mapped in §3 |
-| HTTP rules: `--method`, `--path`, `--query` on allow/deny/rm | v0.45.0 (kits), v0.50.0 (`--query`) | — | gap |
-| UDP rules: `--protocol tcp\|udp` | v0.45.0 | — | gap |
+| HTTP rules: `--method`, `--path`, `--query` on allow/deny/rm | v0.45.0 (kits), v0.50.0 (`--query`) | `policy.AllowRule`, `DenyRule`, `RemoveRuleWith` with `WithMethods`, `WithPath`, `WithQuery` | covered — sibling functions, because `Allow`/`Deny` end in a variadic and `RemoveRule` takes no options; the three old functions now delegate to them with byte-identical argv. Verified live by `TestPolicy_ScopedRules`, in a sandbox scope. `RemoveRuleWith` needs the exact method, path and query, which `PolicyRule` now decodes as `Methods` and `HTTPTargets`. It also gained `Actions`. Sandbox-scoped rows report `scope`/`applies_to` as `sandbox:NAME` and `origin` as `scoped`; the field comments said otherwise and are corrected |
+| UDP rules: `--protocol tcp\|udp` | v0.45.0 | `policy.WithProtocols` | covered on allow and deny, verified live. An allow defaults to tcp, a deny to tcp and udp. A UDP rule is saved but inert unless `feature.udp-egress` is on; the CLI only warns. `RemoveRuleWith` rejects the option: `rm` has no `--protocol` and removes every protocol's rule for the host. `policy check network --protocol` is a separate gap, below |
+| `policy check network --protocol tcp\|udp` | v0.45.0 | — | gap — `POST /policy/network/check` takes `protocol` (verified with curl), but `policy.Check` has no option for it yet |
 | `policy ls --created-via`, `-q` | v0.49.1 | `policy.List` | n/a — `List` is REST and returns every rule |
 | `mcp unload NAME --sandbox S` | v0.48.0 | — | gap — backed by the new `RemoveMcpGatewayServer` op |
 | `mcp rm --registration-only` | — (v0.53.0 notes) | — | gap. At v0.51.0 a plain `mcp rm` also clears the server's local OAuth token, verified live, so `mcp.Remove`'s doc line saying credentials survive it is now suspect |

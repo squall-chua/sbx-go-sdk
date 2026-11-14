@@ -52,7 +52,7 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Copy files | `sb.CopyTo(ctx, local, sandboxPath)`, `sb.CopyFrom(ctx, sandboxPath, local)` |
 | Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)`, `sb.UnpublishPort(ctx, spec)` |
 | Templates | `sb.SaveTemplate(ctx, tag)`, `template.List/Inspect/Remove/Load` |
-| Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.InspectRaw`, `policy.ProfileNames` (`[]string`, empty without a governed org) |
+| Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.AllowRule/DenyRule/RemoveRuleWith` (`WithProtocols`, `WithMethods`, `WithPath`, `WithQuery`; remove needs the exact HTTP options), `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.InspectRaw`, `policy.ProfileNames` (`[]string`, empty without a governed org) |
 | Secrets | `secret.SetCustom/List/Remove`, `secret.SetToken/SetRegistry` (stdin, no argv exposure), `secret.Import/ImportAll` |
 | Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.ListAll(ctx, c)` (feature flags too, v0.38.0), `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
 | SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.TargetFor(name)` |
