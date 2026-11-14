@@ -339,7 +339,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | --- | --- | --- | --- | --- |
 | Store a service token | `secret set` | v0.32.0 | `secret.SetToken` | ✅ written to stdin, never the argument vector |
 | Store registry credentials | `secret set --registry` | v0.32.0 | `secret.SetRegistry` | ✅ written to stdin |
-| Store a custom host secret | `secret set-custom` | v0.32.0 | `secret.SetCustom` | ⚠️ the value passes as a CLI argument — visible in the host process list |
+| Store a custom host secret | `secret set-custom` | v0.32.0 | `secret.SetCustom` | ✅ the value goes on stdin (`--value-stdin`, v0.51.0), never in argv |
 | Host wildcards on a custom secret | `--host` | v0.33.0 | `secret.SetCustom` | ✅ the pattern passes straight through |
 | Import credentials from host env | `secret import` | v0.35.0 | `secret.Import`, `secret.ImportAll` | ✅ |
 | List / remove | `secret ls`, `secret rm` | v0.32.0 | `secret.List`, `ListRaw`, `Remove`, `RemoveCustom` | ✅ `List` reads `secret ls --json` (v0.42.0); `ListRaw` returns the text |
@@ -731,8 +731,8 @@ _ = secret.SetCustom(ctx, c, "", secret.CustomSecret{
 	Value: "sk-...",          // the real secret
 })
 
-// SetToken/SetRegistry write the secret to the child process's stdin — it never
-// appears in the argument vector, unlike SetCustom above.
+// SetCustom, SetToken and SetRegistry all write the secret to the child
+// process's stdin; it never appears in the argument vector.
 _ = secret.SetToken(ctx, c, "", "anthropic", os.Getenv("ANTHROPIC_API_KEY"))
 _ = secret.SetRegistry(ctx, c, "", secret.RegistryCredential{
 	Host:     "ghcr.io",
@@ -749,9 +749,6 @@ raw, _ := secret.ListRaw(ctx, c, "")       // unparsed text escape hatch
 _ = secret.Remove(ctx, c, "", "openai")              // a service/registry secret (positional name)
 _ = secret.RemoveCustom(ctx, c, "", "api.example.com") // a custom secret (keyed by host)
 ```
-
-> ⚠️ `SetCustom` passes the value as a CLI argument, so it is briefly visible in host process
-> listings. Don't use it for high-sensitivity secrets in shared environments.
 
 **Resolve secrets on demand instead of storing them** (sbx v0.39.0). The store then holds only a
 reference, and the daemon fetches the value when a sandbox needs it:
@@ -1155,9 +1152,9 @@ Verified live against `sandboxd` v0.42.1:
   match the spec, then `POST /sandbox/{name}/ports/unpublish` (body: a bare `[]PortKey` array);
   works as of v0.37.0. Since v0.42.0 a publish that names no protocol is `tcp4`, one IPv4 key, so
   a spec ending in `/tcp` does not match it — leave the protocol off.
-- **`secret.SetCustom` is experimental** and exposes the value via the process list. A resolver
-  (`FromRef` / `FromCommand`) keeps the secret out of it, but `FromCommand`'s command text is
-  itself stored and displayed.
+- **`secret.SetCustom` is experimental.** Since v0.51.0 its value goes on stdin, not argv. A
+  resolver (`FromRef` / `FromCommand`) keeps the secret out of the store too, but
+  `FromCommand`'s command text is itself stored and displayed.
 - **Kit signing is only half-verified.** Key-based signing of a local directory round-trips live,
   tampering included. Keyless signing needs an OIDC identity provider, and `kit sign`/`verify` on
   an OCI reference — plus `kit.Provenance` entirely — need a registry, which this SDK has never
@@ -1174,8 +1171,8 @@ Verified live against `sandboxd` v0.42.1:
 - **`sbx mcp rm` on an unregistered name is an error** since v0.45.0 (it exited 0 before), for
   `mcp.Remove` and `mcp.RemoveRegistration` alike.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the
-  value to the child process's stdin rather than passing it as a CLI argument, so unlike
-  `SetCustom` it does not appear in the host process list. Confirmed by a live run: `--force`
+  value to the child process's stdin rather than passing it as a CLI argument, so it does not
+  appear in the host process list. `SetCustom` does the same since v0.51.0. Confirmed by a live run: `--force`
   **does** work on this stdin path, despite upstream's `--help` claiming it applies only "when
   `--token` is used".
 - **`secret.SetToken`, `SetRegistry` and `Import` reject an existing entry** rather than
@@ -1187,10 +1184,10 @@ Verified live against `sandboxd` v0.42.1:
 - **Two related paths may have the same silent-success shape, unverified.** `sbx` has a second
   overwrite prompt — `"%s OAuth token already exists. Overwrite? (y/N): "` — for OAuth-configured
   services; if `secret ls` doesn't surface those as rows, `SetToken` against such a service could
-  still reach that prompt and exit 0 silently. `SetCustom` has no pre-flight check at all and
-  pipes nothing to stdin, so `set-custom` against an existing entry may have the same shape.
-  Neither can be confirmed without running `sbx secret` against real credentials, so both are
-  recorded as known limitations rather than fixed here.
+  still reach that prompt and exit 0 silently. That cannot be confirmed without running `sbx
+  secret` against real credentials, so it is recorded as a known limitation rather than fixed
+  here. (`set-custom` was probed at v0.51.0 and has no overwrite prompt: an existing env is an
+  error unless its placeholder is repeated, which updates it.)
 - **`settings`/`ssh` mutations are fire-and-forget** — `settings.Set/Unset` and
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and return before
   the daemon's ~5s hot-reload; reads (`settings.Get/List`, `ssh.Enabled`) use `--json`.

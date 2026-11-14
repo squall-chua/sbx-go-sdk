@@ -55,8 +55,9 @@ func TestSecretOps(t *testing.T) {
 	// sbx v0.38.0 made global the default and deprecated both "-g" and the bare
 	// positional sandbox name, so global emits no scope argument at all and a
 	// sandbox scope emits "--sandbox NAME".
-	require.Contains(t, lines, "secret set-custom --host api.example.com --env API_KEY --value sk-123")
-	require.Contains(t, lines, "secret set-custom --host *.example.com --host api.other.io --env API_KEY --value sk-456")
+	require.Contains(t, lines, "secret set-custom --host api.example.com --env API_KEY --value-stdin\n")
+	require.Contains(t, lines, "secret set-custom --host *.example.com --host api.other.io --env API_KEY --value-stdin\n")
+	require.NotContains(t, lines, "sk-123", "the value must never reach argv")
 	require.Contains(t, lines, "secret ls\n", "ListRaw reads the text, not --json")
 	require.Contains(t, lines, "secret ls --sandbox my-sandbox --json")
 	require.Contains(t, lines, "secret rm --sandbox mysandbox openai -f")

@@ -53,7 +53,7 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)`, `sb.UnpublishPort(ctx, spec)` |
 | Templates | `sb.SaveTemplate(ctx, tag)`, `template.List/Inspect/Remove/Load` |
 | Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset/Refresh`, `policy.AllowRule/DenyRule/RemoveRuleWith` (`WithProtocols`, `WithMethods`, `WithPath`, `WithQuery`; remove needs the exact HTTP options), `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.CheckHTTP` (URL, `WithCheckMethod`, default GET), `policy.InspectRaw`, `policy.ListApprovals` (`[]json.RawMessage`, shape unseen)/`InspectApprovalRaw`/`RespondApproval(id, option)`, `policy.ProfileNames` (`[]string`, empty without a governed org) |
-| Secrets | `secret.SetCustom/List/Remove`, `secret.SetToken/SetRegistry` (stdin, no argv exposure), `secret.Import/ImportAll` |
+| Secrets | `secret.SetCustom/List/Remove`, `secret.SetToken/SetRegistry` (all three on stdin, no argv exposure), `secret.Import/ImportAll` |
 | Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.ListAll(ctx, c)` (feature flags too, v0.38.0), `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
 | SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.TargetFor(name)` |
 | Skills | `skillstore.Import(ctx, c, skillstore.WithDryRun())` — shared agent skills store (v0.37.0) |
@@ -127,14 +127,13 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 - **`sb.Inspect` vs `sb.Summary`.** `Inspect` is the daemon's REST record. `Summary`
   (`sbx inspect --json`, shell-out) is the only source of `AuthMode`, `Secrets`, `Sessions` and
   `MCPGateway`. Check `Summary.Sessions` before reaching for `Remove(WithForce())`.
-- **`secret.SetCustom` is experimental** and exposes the value in host process listings — for
-  headless agent credentials prefer `exec.WithEnv`. `secret.SetToken`/`SetRegistry` do not have
-  this problem: both write the secret to the child process's stdin instead of an argument, so it
-  never appears in the process list.
+- **`secret.SetCustom` is experimental.** It, `secret.SetToken` and `SetRegistry` all write the
+  secret to the child process's stdin (`set-custom --value-stdin` since v0.51.0), so it never
+  appears in the process list.
 - **`SetToken`/`SetRegistry`/`Import` error on an existing entry** instead of silently no-op'ing —
   without `--force`, sbx's own overwrite prompt reads EOF from non-interactive stdin and exits 0
   having stored nothing. Pass `WithOverwrite()`/`WithOverwriteExisting()` to replace. `SetCustom`
-  has no such check.
+  needs none: reusing an env errors unless you repeat its `Placeholder`, which updates it.
 - **`settings`/`ssh` mutations are fire-and-forget shell-outs** — `settings.Set`,
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and
   return before the daemon's ~5s hot-reload. `settings.Get/List` and `ssh.Enabled`
