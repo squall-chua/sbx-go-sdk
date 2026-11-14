@@ -272,13 +272,18 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Start / stop / remove | `stop`, `rm` | v0.32.0 | `sb.Start`, `sb.Stop`, `sb.Remove` | ✅ |
 | Stable per-sandbox ID | — | v0.33.0 | `sb.ID()` | ✅ |
 | Mount-policy-denied flag | — | v0.33.0 | `sb.MountPolicyDenied()` | ✅ |
+| Working dirs, host mounts, last use | — | v0.43.0 / v0.51.0 | `sb.Inspect` → `WorkingDir`, `EffectiveWorkingDir`, `HostMounts`, `RuntimeMounts`, `LastUsedAt`; `sb.Summary` also has `CreatedVersion` | ⚠️ `RuntimeMounts` stays raw JSON: only `[]` was ever seen |
 | Force-remove an active session | `rm -f` | v0.35.0 | `sandbox.WithForce()` | ✅ |
 | Remove every sandbox at once | `rm --all` | v0.37.0 | — | ❌ loop over `sandbox.List` |
 | Publish ports at create time | `-p/--publish` | v0.37.0 | `sandbox.WithPublish` | ✅ |
 | Set env vars at create time | `-e/--env`, `--env-file` | v0.39.0 | `sandbox.WithEnv`, `WithEnvFile` | ✅ the only route to the daemon's `Environment` field; a bare `KEY` inherits from your process |
 | Remove all stopped sandboxes | `prune` | v0.39.0 | `sandbox.Prune` | ✅ `WithDryRun`, `WithStoppedLongerThan`; always passes `--force`, which also removes an in-use sandbox |
 | Clone, CPUs, memory, template, profile, name | flags | v0.32.0 | `sandbox.With*` | ✅ |
-| Skip skill sharing | `--no-share-skills` | v0.37.0 | `sandbox.WithoutSharedSkills` | ⚠️ the flag always parses; whether it changes anything depends on the `feature.shareSkills` flag |
+| Shared skills mode | `--skills off\|readonly\|readwrite` | v0.43.0 | `sandbox.WithSkills`, `WithoutSharedSkills` | ✅ `WithoutSharedSkills` is `--skills off` (the old `--no-share-skills` is deprecated). Creation only: a `Run` re-attach fails with it set |
+| Bind host dirs to kit mount paths | `--mount HOST:SANDBOX_PATH` | v0.50.0 | `sandbox.WithMount` | ⚠️ HOST is made absolute; needs a kit declaring `host-mount@1` at the path, and that success path is untested. Creation only: a `Run` re-attach fails with it set |
+| Image pull policy | `--pull always\|missing\|never` | by v0.51.0 | `sandbox.WithPull` | ✅ |
+| Remove after the session | `run --rm` | v0.47.0 | `sandbox.WithRemoveOnExit` | ✅ package-level `Run` only; it also removes a sandbox `Run` re-attached to |
+| Session working directory | `run -w/--workdir` | v0.51.0 | `sandbox.WithWorkdir` | ✅ `Run` and `sb.Run`, on a re-attach too |
 | Per-sandbox deny rules at create time | `--deny-network` | v0.38.0 | `sandbox.WithDenyNetwork` | ✅ |
 | Fix the sandbox's MCP server set | `--static-mcp` | v0.38.0 | `sandbox.WithStaticMCP` | ✅ chosen once at create; `run` ignores it when re-attaching |
 
@@ -316,11 +321,15 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Feature | `sbx` | Since | SDK | |
 | --- | --- | --- | --- | --- |
 | Allow / deny / remove a rule | `policy` | v0.32.0 | `policy.Allow`, `Deny`, `RemoveRule` | ✅ |
+| UDP and HTTP rules | `--protocol`, `--method`, `--path`, `--query` | v0.45.0–v0.50.0 | `policy.AllowRule`, `DenyRule`, `RemoveRuleWith` | ✅ removing an HTTP rule needs its exact method, path and query (see `PolicyRule.HTTPTargets`); a UDP rule is inert unless `feature.udp-egress` is on |
 | Reset rules, read the proxy log | `policy reset`, `policy log` | v0.32.0 | `policy.Reset`, `policy.Log` | ✅ |
 | Set the default profile | `policy init` | v0.34.0 | `policy.SetDefault` | ✅ renamed from `set-default` in v0.34.0 |
 | List rules | `policy ls` | v0.32.0 | `policy.List`, `policy.ListRaw` | ✅ REST as of v0.37.0, always `type=all` |
 | `ls` filters: `--wide`, `--source`, `--decision`, `--include-inactive` | `policy ls` | v0.35.0 | — | ❌ the fields are on `PolicyRule`; filter client-side |
 | Check whether an access is allowed | `policy check network` | v0.35.0 | `policy.Check` | ✅ |
+| Re-fetch governance policy now | `policy refresh` | v0.49.1 | `policy.Refresh` | ⚠️ argv-tested only; never run live, as it invalidates the cached registry credential |
+| Pending approvals | `policy approval ls\|inspect\|respond` | by v0.51.0 | `policy.ListApprovals`, `InspectApprovalRaw`, `RespondApproval` | ⚠️ entries are raw JSON: none has been seen, as approvals need org governance |
+| Check an HTTP request | `policy check http` | v0.51.0 | `policy.CheckHTTP` | ✅ REST; `WithCheckMethod` (default GET), `WithCheckSandbox` |
 | Governance / org status on a check | — | v0.37.0 | `Authorization.Governance` | ⚠️ fields decoded; live behaviour unverified, no governed org to test against |
 | Inspect a policy or rule | `policy inspect` | v0.35.0 | `policy.InspectRaw` | ⚠️ raw text — no `--json` upstream |
 | List profiles | `policy profile ls` | v0.32.0 | `policy.ProfileNames`, `policy.Profiles` | ✅ `ProfileNames` is REST and typed — names are the daemon's own shape. Empty without a governed org |
@@ -330,8 +339,9 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | Feature | `sbx` | Since | SDK | |
 | --- | --- | --- | --- | --- |
 | Store a service token | `secret set` | v0.32.0 | `secret.SetToken` | ✅ written to stdin, never the argument vector |
-| Store registry credentials | `secret set --registry` | v0.32.0 | `secret.SetRegistry` | ✅ written to stdin |
-| Store a custom host secret | `secret set-custom` | v0.32.0 | `secret.SetCustom` | ⚠️ the value passes as a CLI argument — visible in the host process list |
+| Store registry credentials | `secret set --registry` | v0.32.0 | `secret.SetRegistry` | ✅ written to stdin; `AuthEndpoint` sets `--registry-auth-endpoint` for a cross-host auth realm (v0.51.0) |
+| Remove registry credentials | `secret rm --registry` | by v0.42.1 | — | ❌ `secret.Remove` on a registry host exits 0 and removes nothing |
+| Store a custom host secret | `secret set-custom` | v0.32.0 | `secret.SetCustom` | ✅ the value goes on stdin (`--value-stdin`, v0.51.0), never in argv |
 | Host wildcards on a custom secret | `--host` | v0.33.0 | `secret.SetCustom` | ✅ the pattern passes straight through |
 | Import credentials from host env | `secret import` | v0.35.0 | `secret.Import`, `secret.ImportAll` | ✅ |
 | List / remove | `secret ls`, `secret rm` | v0.32.0 | `secret.List`, `ListRaw`, `Remove`, `RemoveCustom` | ✅ `List` reads `secret ls --json` (v0.42.0); `ListRaw` returns the text |
@@ -346,6 +356,8 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | --- | --- | --- | --- | --- |
 | Inspect a kit | `kit inspect` | v0.34.0 | `kit.Inspect` | ⚠️ upstream omits the `files/` payload from `--json` |
 | Validate a kit | `kit validate` | v0.34.0 | `kit.Validate` | ✅ OCI references are refused by the CLI |
+| Kit builder sandbox | `kit builder status` / `history` / `rm` | by v0.51.0 | `kit.BuilderStatusRaw`, `kit.BuilderHistoryRaw`, `kit.RemoveBuilder` | ⚠️ text only; any `history` call creates the builder |
+| Inspect/validate offline, inspect resolved | `kit inspect --offline/--resolved`, `kit validate --offline` | v0.49.1 / v0.51.0 | `kit.InspectWith`, `kit.ValidateWith` + `kit.WithOffline`, `kit.WithResolved` | ⚠️ `--resolved` parents must be agents still embedded in the CLI (`gemini`, `claude-bedrock`, `claude-vertex` at v0.51.0) |
 | Pack a kit into a ZIP | `kit pack` | v0.34.0 | `kit.Pack` | ✅ |
 | Push / pull an OCI v2 artifact | `kit push`, `kit pull` | v0.34.0 | `kit.Push`, `kit.Pull` | ⚠️ never completed against a live registry |
 | Attach kits at create time | `create --kit` | v0.34.0 | `sandbox.WithKit` | ✅ |
@@ -510,8 +522,8 @@ fmt.Println(info.Status, info.Workspace, info.Ports)
 ```
 
 `Inspect` is REST and cheap. When you need what the daemon's own record does *not* carry — the
-auth mode, the injected secrets, the count of active sessions, or whether an MCP gateway is
-configured — use `Summary`, which shells out to `sbx inspect --json`:
+auth mode, the injected secrets, the count of active sessions, whether an MCP gateway is
+configured, or the sbx release that created the sandbox — use `Summary`, which shells out to `sbx inspect --json`:
 
 ```go
 s, _ := sb.Summary(ctx)
@@ -688,6 +700,9 @@ _ = policy.SetDefault(ctx, c, "balanced")            // "allow-all" | "balanced"
 _ = policy.Allow(ctx, c, "", "api.github.com")       // global allow
 _ = policy.Deny(ctx, c, "review-bot", "evil.test")   // per-sandbox deny
 _ = policy.RemoveRule(ctx, c, "review-bot", "evil.test")  // resource selector required
+get := []policy.RuleOption{policy.WithMethods("GET"), policy.WithPath("/v1/**")}
+_ = policy.AllowRule(ctx, c, "review-bot", []string{"api.example.com"}, get...) // HTTP rule
+_ = policy.RemoveRuleWith(ctx, c, "review-bot", "api.example.com", get...)      // same options to remove
 _ = policy.Reset(ctx, c)
 
 rules, _ := policy.List(ctx, c, "")                  // []policy.PolicyRule (REST, always type=all)
@@ -702,6 +717,7 @@ for _, e := range log.BlockedHosts {
 // Ask whether the current policy would authorize an access, without connecting:
 auth, _ := policy.Check(ctx, c, "evil.test")                          // *policy.Authorization
 fmt.Println(auth.Allowed, auth.Rule, auth.Reason)
+auth, _ = policy.CheckHTTP(ctx, c, "https://api.example.com/v1/items", policy.WithCheckMethod("POST"))
 _, _ = policy.Check(ctx, c, "api.github.com", policy.WithCheckSandbox("review-bot"))
 
 detail, _ := policy.InspectRaw(ctx, c, "review-bot-net-allow") // human-rendered detail; selector from List
@@ -719,8 +735,8 @@ _ = secret.SetCustom(ctx, c, "", secret.CustomSecret{
 	Value: "sk-...",          // the real secret
 })
 
-// SetToken/SetRegistry write the secret to the child process's stdin — it never
-// appears in the argument vector, unlike SetCustom above.
+// SetCustom, SetToken and SetRegistry all write the secret to the child
+// process's stdin; it never appears in the argument vector.
 _ = secret.SetToken(ctx, c, "", "anthropic", os.Getenv("ANTHROPIC_API_KEY"))
 _ = secret.SetRegistry(ctx, c, "", secret.RegistryCredential{
 	Host:     "ghcr.io",
@@ -734,12 +750,9 @@ _ = secret.ImportAll(ctx, c, secret.WithDryRun())      // preview everything det
 
 secrets, _ := secret.List(ctx, c, "")      // *secret.Secrets{Stored, Custom}
 raw, _ := secret.ListRaw(ctx, c, "")       // unparsed text escape hatch
-_ = secret.Remove(ctx, c, "", "openai")              // a service/registry secret (positional name)
+_ = secret.Remove(ctx, c, "", "openai")              // a service secret (not a registry: see below)
 _ = secret.RemoveCustom(ctx, c, "", "api.example.com") // a custom secret (keyed by host)
 ```
-
-> ⚠️ `SetCustom` passes the value as a CLI argument, so it is briefly visible in host process
-> listings. Don't use it for high-sensitivity secrets in shared environments.
 
 **Resolve secrets on demand instead of storing them** (sbx v0.39.0). The store then holds only a
 reference, and the daemon fetches the value when a sandbox needs it:
@@ -869,6 +882,7 @@ err := kit.Validate(ctx, c, "./my-kit")      // dir, ZIP or git repo — NOT an 
 if errors.Is(err, client.ErrKitRejected) {
 	// the CLI rejected the artifact ("valid": false)
 }
+_ = kit.ValidateWith(ctx, c, "./my-kit", kit.WithOffline()) // no daemon policy; local dir/ZIP only, no v3 source kits
 
 _ = kit.Pack(ctx, c, "./my-kit", "./my-kit.zip") // out is required, never derived
 _ = kit.Pull(ctx, c, "ghcr.io/me/kit:v1", "./my-kit.zip")
@@ -948,6 +962,13 @@ _ = mcp.AddRemote(ctx, c, "deepwiki", "https://mcp.deepwiki.com/mcp")
 // A local stdio server. It runs on the HOST with your full permissions —
 // upstream documents this as ad-hoc development only.
 _ = mcp.AddLocal(ctx, c, "github", "npx", []string{"@modelcontextprotocol/server-github"})
+// Remote only. A static API key: ${api-key} is filled from the secret mcp:acme:api-key.
+_ = secret.SetToken(ctx, c, "", "mcp:acme:api-key", apiKey)
+_ = mcp.AddRemote(ctx, c, "acme", "https://mcp.acme.com/mcp",
+	mcp.WithHeaders("Authorization: Bearer ${api-key}"), mcp.WithDisableHTTP2())
+// An OAuth server: WithResource and WithCallbackPort only apply when it needs OAuth.
+_ = mcp.AddRemote(ctx, c, "oauthy", "https://mcp.oauthy.com/mcp",
+	mcp.WithResource("https://api.oauthy.com/mcp"), mcp.WithCallbackPort(8765))
 
 servers, _ := mcp.List(ctx, c)              // [{Name, Type: local|remote, Transport, Status}]
 d, _ := mcp.Inspect(ctx, c, "deepwiki")     // d.URL, d.Transport, d.RequiresOAuth, d.Issuer
@@ -961,8 +982,10 @@ sb, _ := sandbox.Create(ctx, c,
 
 // …or attach to a running sandbox. Connected agents see the new tools at once.
 _ = mcp.Load(ctx, c, "deepwiki", sb.Name())
+_ = mcp.Unload(ctx, c, "deepwiki", sb.Name())  // detach; the registration stays
 
-_ = mcp.Remove(ctx, c, "deepwiki")          // registration only; hosted OAuth creds survive
+_ = mcp.Remove(ctx, c, "deepwiki")          // also clears the local OAuth token (v0.51.0)
+_ = mcp.RemoveRegistration(ctx, c, "github") // registration only; credentials are kept
 ```
 
 OAuth credentials stay on the host and never enter a sandbox. Registering an OAuth server would
@@ -982,15 +1005,14 @@ st, _ := mcp.AuthStatus(ctx, c)   // []mcp.AuthResult; .Authorized() per server
 
 `Authorize` refreshes a merely-expired credential without consent, so `onURL` may never fire on a
 successful call. A confidential client's secret has no flag — store it first as the global secret
-`mcp:<name>.client_secret` (`secret.SetToken`), then pass `mcp.WithClientID`.
+`mcp:<name>:client_secret` (`secret.SetToken`; before v0.51.0 the help said `mcp:<name>.client_secret`), then pass `mcp.WithClientID`.
 
 ```go
 mode, _ := c.MCPGatewayMode(ctx)  // {Decision: "local"|"saas", GatewayURL, Reason}
 ```
 
-`List` and `Inspect` parse CLI tables — neither subcommand has a `--json` flag upstream
-([ADR 0002](docs/adr/0002-parse-sbx-table-output.md)). `mcp.Remove` on a name that was never
-registered is a silent success: the CLI exits 0. `mcp.AuthStatus` reports whether each OAuth server
+`List` and `Inspect` read the CLI's `--json` (since v0.42.0). `mcp.Remove` on a name that was never
+registered is an error since v0.45.0 (`MCP server "NAME" not found`). `mcp.AuthStatus` reports whether each OAuth server
 has a usable credential.
 
 ---
@@ -1135,9 +1157,9 @@ Verified live against `sandboxd` v0.42.1:
   match the spec, then `POST /sandbox/{name}/ports/unpublish` (body: a bare `[]PortKey` array);
   works as of v0.37.0. Since v0.42.0 a publish that names no protocol is `tcp4`, one IPv4 key, so
   a spec ending in `/tcp` does not match it — leave the protocol off.
-- **`secret.SetCustom` is experimental** and exposes the value via the process list. A resolver
-  (`FromRef` / `FromCommand`) keeps the secret out of it, but `FromCommand`'s command text is
-  itself stored and displayed.
+- **`secret.SetCustom` is experimental.** Since v0.51.0 its value goes on stdin, not argv. A
+  resolver (`FromRef` / `FromCommand`) keeps the secret out of the store too, but
+  `FromCommand`'s command text is itself stored and displayed.
 - **Kit signing is only half-verified.** Key-based signing of a local directory round-trips live,
   tampering included. Keyless signing needs an OIDC identity provider, and `kit sign`/`verify` on
   an OCI reference — plus `kit.Provenance` entirely — need a registry, which this SDK has never
@@ -1151,11 +1173,11 @@ Verified live against `sandboxd` v0.42.1:
 - **`mcp.List` does not report a server's URL or command** — v0.39.0 dropped the endpoint from
   the listing, and the v0.42.0 JSON does not carry it either. `mcp.Server` has `Transport` and
   `Status` instead. Read the endpoint from `mcp.Inspect`.
-- **`sbx mcp rm` on an unregistered name exits 0** — so `mcp.Remove` cannot tell you whether it
-  actually removed anything. Call `mcp.List` first if that distinction matters.
+- **`sbx mcp rm` on an unregistered name is an error** since v0.45.0 (it exited 0 before), for
+  `mcp.Remove` and `mcp.RemoveRegistration` alike.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the
-  value to the child process's stdin rather than passing it as a CLI argument, so unlike
-  `SetCustom` it does not appear in the host process list. Confirmed by a live run: `--force`
+  value to the child process's stdin rather than passing it as a CLI argument, so it does not
+  appear in the host process list. `SetCustom` does the same since v0.51.0. Confirmed by a live run: `--force`
   **does** work on this stdin path, despite upstream's `--help` claiming it applies only "when
   `--token` is used".
 - **`secret.SetToken`, `SetRegistry` and `Import` reject an existing entry** rather than
@@ -1167,10 +1189,10 @@ Verified live against `sandboxd` v0.42.1:
 - **Two related paths may have the same silent-success shape, unverified.** `sbx` has a second
   overwrite prompt — `"%s OAuth token already exists. Overwrite? (y/N): "` — for OAuth-configured
   services; if `secret ls` doesn't surface those as rows, `SetToken` against such a service could
-  still reach that prompt and exit 0 silently. `SetCustom` has no pre-flight check at all and
-  pipes nothing to stdin, so `set-custom` against an existing entry may have the same shape.
-  Neither can be confirmed without running `sbx secret` against real credentials, so both are
-  recorded as known limitations rather than fixed here.
+  still reach that prompt and exit 0 silently. That cannot be confirmed without running `sbx
+  secret` against real credentials, so it is recorded as a known limitation rather than fixed
+  here. (`set-custom` was probed at v0.51.0 and has no overwrite prompt: an existing env is an
+  error unless its placeholder is repeated, which updates it.)
 - **`settings`/`ssh` mutations are fire-and-forget** — `settings.Set/Unset` and
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and return before
   the daemon's ~5s hot-reload; reads (`settings.Get/List`, `ssh.Enabled`) use `--json`.

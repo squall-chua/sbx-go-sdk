@@ -52,14 +52,14 @@ body, _ := io.ReadAll(out)                                   // demuxed stdout (
 | Copy files | `sb.CopyTo(ctx, local, sandboxPath)`, `sb.CopyFrom(ctx, sandboxPath, local)` |
 | Ports | `sb.PublishPort(ctx, sandbox.Port{...})`, `sb.Ports(ctx)`, `sb.UnpublishPort(ctx, spec)` |
 | Templates | `sb.SaveTemplate(ctx, tag)`, `template.List/Inspect/Remove/Load` |
-| Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset`, `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.InspectRaw`, `policy.ProfileNames` (`[]string`, empty without a governed org) |
-| Secrets | `secret.SetCustom/List/Remove`, `secret.SetToken/SetRegistry` (stdin, no argv exposure), `secret.Import/ImportAll` |
+| Network policy | `policy.SetDefault/Allow/Deny/RemoveRule/Reset/Refresh`, `policy.AllowRule/DenyRule/RemoveRuleWith` (`WithProtocols`, `WithMethods`, `WithPath`, `WithQuery`; remove needs the exact HTTP options), `policy.Log`, `policy.Check` (`*policy.Authorization`), `policy.CheckHTTP` (URL, `WithCheckMethod`, default GET), `policy.InspectRaw`, `policy.ListApprovals` (`[]json.RawMessage`, shape unseen)/`InspectApprovalRaw`/`RespondApproval(id, option)`, `policy.ProfileNames` (`[]string`, empty without a governed org) |
+| Secrets | `secret.SetCustom/List/Remove`, `secret.SetToken/SetRegistry` (all three on stdin, no argv exposure; `RegistryCredential.AuthEndpoint` for a cross-host auth realm; no registry removal — `Remove` on a registry host is a silent no-op), `secret.Import/ImportAll` |
 | Settings | `settings.Get(ctx, c, key)`, `settings.List(ctx, c)`, `settings.ListAll(ctx, c)` (feature flags too, v0.38.0), `settings.Set(ctx, c, key, value)`, `settings.Unset(ctx, c, key)` |
 | SSH endpoint | `ssh.Enable/Disable/Enabled`, `ssh.Setup(ctx, c, ssh.WithAlias(...))`, `ssh.TargetFor(name)` |
 | Skills | `skillstore.Import(ctx, c, skillstore.WithDryRun())` — shared agent skills store (v0.37.0) |
-| Kit artifacts | `kit.Inspect/Validate/Pack/Push/Pull(ctx, c, ...)` (v0.34.0) — attach with `sandbox.WithKit` (v0.34.0) or `sb.AddKit`/`sb.Kits` (v0.35.0) |
-| MCP servers | `mcp.AddRemote/AddLocal/List/Inspect/Remove/Load(ctx, c, ...)` (v0.38.0) — fix a sandbox's set with `sandbox.WithStaticMCP`, or `mcp.Load` into a running one; `mcp.AuthStatus/AuthRemove` for hosted OAuth state; `c.MCPGatewayMode(ctx)` reports local vs hosted gateway |
-| Sandbox summary | `sb.Summary(ctx)` → auth mode, injected secrets, session count, MCP-gateway state (v0.38.0) — none of these are on `sb.Inspect`'s REST record |
+| Kit artifacts | `kit.Inspect/Validate/Pack/Push/Pull(ctx, c, ...)` (v0.34.0), `kit.InspectWith/ValidateWith` + `kit.WithOffline()`/`WithResolved()` (v0.49.1/v0.51.0), `kit.BuilderStatusRaw/BuilderHistoryRaw/RemoveBuilder` (by v0.51.0; `history` creates the builder sandbox) — attach with `sandbox.WithKit` (v0.34.0) or `sb.AddKit`/`sb.Kits` (v0.35.0) |
+| MCP servers | `mcp.AddRemote/AddLocal/List/Inspect/Remove/Load(ctx, c, ...)` (v0.38.0), `mcp.Unload(ctx, c, name, sandbox)` (v0.48.0), `mcp.RemoveRegistration` (keeps credentials); remote add options `WithHeaders` (`${placeholder}` from secret `mcp:<name>:<placeholder>`; `Details.Headers`/`HeaderSecrets`), `WithResource`, `WithCallbackPort`, `WithDisableHTTP2` — fix a sandbox's set with `sandbox.WithStaticMCP`, or `mcp.Load` into a running one; `mcp.AuthStatus/AuthRemove` for hosted OAuth state; `c.MCPGatewayMode(ctx)` reports local vs hosted gateway |
+| Sandbox summary | `sb.Summary(ctx)` → auth mode, injected secrets, session count, MCP-gateway state (v0.38.0), creating sbx release `CreatedVersion` (v0.51.0) — none of these are on `sb.Inspect`'s REST record. Working dirs and host mounts are on both (v0.51.0) |
 | Prune stopped sandboxes | `sandbox.Prune(ctx, c, sandbox.WithDryRun(), sandbox.WithStoppedLongerThan("24h"))` (v0.39.0) → the names removed, or with `WithDryRun` the names it would remove |
 | Kit signing | `kit.Sign/Verify/Provenance(ctx, c, ref, ...)` and `kit.WithSign` on `Push` (v0.39.0) — `WithKey`/`WithPublicKey` for key-based, `WithCertificateIdentity`+`WithCertificateOIDCIssuer` for keyless |
 | Install check / sign-in | `c.Diagnose(ctx)` (`*client.Diagnosis`, `.OK()`), `c.Login(ctx, user, token)` (stdin, no argv), `c.Logout(ctx)` (stops every running sandbox), `c.RestartDaemon(ctx)` |
@@ -70,7 +70,9 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
 `WithMultiplexed`. Create options: `WithAgent`, `WithWorkspace`, `WithName`, `WithCPUs`,
 `WithMemory`, `WithTemplate`, `WithProfile`, `WithClone`, `WithAgentArgs`, `WithStdio`,
 `WithPublish` (`-p`, v0.37.0), `WithKit` (`--kit`, v0.34.0), `WithDenyNetwork`, `WithStaticMCP`
-(both v0.38.0), `WithoutSharedSkills`, `WithEnv`/`WithEnvFile` (v0.39.0). Remove option:
+(both v0.38.0), `WithoutSharedSkills` (= `WithSkills("off")`), `WithEnv`/`WithEnvFile` (v0.39.0),
+`WithSkills`, `WithMount`, `WithPull`, and the run-only `WithRemoveOnExit` (`--rm`) and
+`WithWorkdir` (`-w`, also on `sb.Run`) (v0.51.0). Remove option:
 `WithForce` (removes an active session).
 
 ## Gotchas (verified against sandboxd v0.42.1)
@@ -123,16 +125,15 @@ Exec options: `WithEnv`, `WithWorkdir`, `WithUser`, `WithPrivileged`, `WithTTY`,
   failure, so treating the exit code as an error would drop the diagnosis. Branch on `d.OK()` or
   `d.Summary.Fail`, never on the error alone.
 - **`sb.Inspect` vs `sb.Summary`.** `Inspect` is the daemon's REST record. `Summary`
-  (`sbx inspect --json`, shell-out) is the only source of `AuthMode`, `Secrets`, `Sessions` and
-  `MCPGateway`. Check `Summary.Sessions` before reaching for `Remove(WithForce())`.
-- **`secret.SetCustom` is experimental** and exposes the value in host process listings — for
-  headless agent credentials prefer `exec.WithEnv`. `secret.SetToken`/`SetRegistry` do not have
-  this problem: both write the secret to the child process's stdin instead of an argument, so it
-  never appears in the process list.
+  (`sbx inspect --json`, shell-out) is the only source of `AuthMode`, `Secrets`, `Sessions`,
+  `MCPGateway` and `CreatedVersion`. Check `Summary.Sessions` before reaching for `Remove(WithForce())`.
+- **`secret.SetCustom` is experimental.** It, `secret.SetToken` and `SetRegistry` all write the
+  secret to the child process's stdin (`set-custom --value-stdin` since v0.51.0), so it never
+  appears in the process list.
 - **`SetToken`/`SetRegistry`/`Import` error on an existing entry** instead of silently no-op'ing —
   without `--force`, sbx's own overwrite prompt reads EOF from non-interactive stdin and exits 0
   having stored nothing. Pass `WithOverwrite()`/`WithOverwriteExisting()` to replace. `SetCustom`
-  has no such check.
+  needs none: reusing an env errors unless you repeat its `Placeholder`, which updates it.
 - **`settings`/`ssh` mutations are fire-and-forget shell-outs** — `settings.Set`,
   `ssh.Enable/Disable/Setup` write host state (`settings.json`, `~/.ssh/config`) and
   return before the daemon's ~5s hot-reload. `settings.Get/List` and `ssh.Enabled`

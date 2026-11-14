@@ -94,18 +94,52 @@ func WithDenyNetwork(hosts ...string) Option {
 	return func(d *Definition) { d.denyNetwork = append(d.denyNetwork, hosts...) }
 }
 
-// WithoutSharedSkills opts the sandbox out of mounting the shared agent skills
-// store (`--no-share-skills`). Applies at creation only.
+// WithoutSharedSkills opts the sandbox out of the shared agent skills store.
+// It is WithSkills("off"); the SDK emits `--skills off`, because sbx v0.43.0
+// deprecated the old `--no-share-skills` spelling. Applies at creation only.
 //
-// The flag is hidden from `sbx create --help` unless the `feature.shareSkills`
-// setting is on, but it is registered either way and is accepted either way —
-// verified against sbx v0.38.0 with the feature off. What the flag *does*
-// therefore depends on that feature being active: with it off there is no
-// mount to opt out of, and passing this is a harmless no-op rather than an
-// error. Read the current state with settings.ListAll.
-func WithoutSharedSkills() Option {
-	return func(d *Definition) { d.noShareSkills = true }
+// On Run, it makes a re-attach to an existing sandbox fail: the CLI refuses
+// --skills, as it refused --no-share-skills, once the sandbox exists.
+func WithoutSharedSkills() Option { return WithSkills("off") }
+
+// WithSkills sets how the shared skills store reaches the agent's skills
+// directory (`--skills`, added in sbx v0.43.0): "off", "readonly" (the store is
+// linked in read-only, and the directory stays writable) or "readwrite" (the
+// store is mounted over it, so writes are shared). Unset means the CLI default:
+// readonly, or the skills.defaultMode setting.
+//
+// Applies at creation only. On Run, a re-attach to an existing sandbox fails
+// with it set. The last of WithSkills and WithoutSharedSkills wins. The CLI
+// rejects any other mode.
+func WithSkills(mode string) Option { return func(d *Definition) { d.skills = mode } }
+
+// WithMount binds host directories to paths a kit declares as host-mount@1
+// (`--mount HOST:SANDBOX_PATH`, added in sbx v0.50.0). The daemon rejects a
+// SANDBOX_PATH that no kit of the sandbox declares. The HOST half is made
+// absolute when the argument vector is built.
+//
+// Applies at creation only. On Run, a re-attach to an existing sandbox fails
+// with it set. May be called once with several specs or repeatedly.
+func WithMount(specs ...string) Option {
+	return func(d *Definition) { d.mounts = append(d.mounts, specs...) }
 }
+
+// WithPull sets the image pull policy at creation (`--pull`): "always",
+// "missing" or "never". Unset means the CLI default: never for a saved local
+// snapshot, missing for a v3 kit composition, and always otherwise. Use
+// "never" with WithTemplate on a template saved by SaveTemplate.
+func WithPull(policy string) Option { return func(d *Definition) { d.pull = policy } }
+
+// WithRemoveOnExit removes the sandbox once the agent session ends (`run
+// --rm`). It is honored only by the package-level Run, where it also removes
+// an existing sandbox that Run re-attached to. Create and Sandbox.Run ignore
+// it; a Sandbox handle would outlive its sandbox.
+func WithRemoveOnExit() Option { return func(d *Definition) { d.rm = true } }
+
+// WithWorkdir starts the agent session in dir (`run -w`), absolute or relative
+// to the sandbox workspace. It applies to that session only, so both Run and
+// Sandbox.Run honor it, on a re-attach too. Create ignores it.
+func WithWorkdir(dir string) Option { return func(d *Definition) { d.workdir = dir } }
 
 // WithStaticMCP fixes the sandbox's static MCP server set (`--static-mcp`,
 // added in sbx v0.38.0). Each name must already be registered with the mcp

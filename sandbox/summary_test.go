@@ -87,6 +87,35 @@ func TestSummary(t *testing.T) {
 	require.Contains(t, string(args), "inspect --json sdk-inspect-probe")
 }
 
+// Assembled from live `sbx inspect --json` output at sbx v0.51.0, with the
+// host_mounts of the REST capture in internal/api. working_dir is set by hand: every live probe saw "",
+// which cannot tell the key from its absence.
+const summaryV051 = `{"name":"p6-ro","agent":"shell","state":"running","workspace":"/tmp/p6ws",
+  "created_version": "v0.51.0",
+  "working_dir": "/work",
+  "effective_working_dir": "/tmp/p6ws",
+  "host_mounts": [
+    {"container_target": "/tmp/p6ws", "host_path": "/tmp/p6ws", "read_only": false},
+    {"container_target": "/tmp/p6ro", "host_path": "/tmp/p6ro", "read_only": true}
+  ],
+  "runtime_mounts": []}`
+
+func TestSummary_DecodesV051Keys(t *testing.T) {
+	c := clientPrintingSbx(t, filepath.Join(t.TempDir(), "args.txt"), summaryV051)
+	got, err := NewForTest(c, "p6-ro").Summary(context.Background())
+	require.NoError(t, err)
+
+	require.Equal(t, "v0.51.0", got.CreatedVersion)
+	require.Equal(t, "/work", got.WorkingDir)
+	require.Equal(t, "/tmp/p6ws", got.EffectiveWorkingDir)
+	require.Equal(t, []HostMount{
+		{ContainerTarget: "/tmp/p6ws", HostPath: "/tmp/p6ws", ReadOnly: false},
+		{ContainerTarget: "/tmp/p6ro", HostPath: "/tmp/p6ro", ReadOnly: true},
+	}, got.HostMounts)
+	require.NotNil(t, got.RuntimeMounts, "an empty list decodes as empty, not nil")
+	require.Empty(t, got.RuntimeMounts)
+}
+
 // The CLI omits kits, ports, secrets and mount_policy_denied on a bare sandbox.
 // Their absence must decode as zero values, not fail.
 func TestSummary_OmittedFieldsDecodeAsZero(t *testing.T) {

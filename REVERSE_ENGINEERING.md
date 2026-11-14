@@ -254,7 +254,10 @@ sbx create [flags] AGENT PATH [PATH...]       # create a sandbox for an agent
       v0.51.0: --quiet/-q is GONE (→ --no-progress, v0.48.0). NEW: --skills off|readonly|readwrite
        (v0.43.0; --no-share-skills is its hidden, deprecated alias for off), --mount HOST:SANDBOX_PATH
        (v0.50.0, kit host-mount@1 paths), --pull always|missing|never, --no-progress. PATH args take
-       PATH[:TARGET][:ro]. No per-agent `create <agent>` subcommands any more except `create gemini`
+       PATH[:TARGET][:ro]. Probed: on a `run` re-attach, --skills, --no-share-skills and --mount
+       all fail ("can only be used when creating a new sandbox"), while --pull, -w and --rm are
+       accepted; --rm removes even a re-attached sandbox. --mount without a kit declaring the
+       path → daemon 400 `no kit declares host-mount@1 at "/x"`. No per-agent `create <agent>` subcommands any more except `create gemini`
 sbx diagnose [--format table|json|yaml|github-issue] [--json] [--upload]
     (-o/--output, NEW in v0.38.0, was REPLACED by --format in v0.48.0 and is now an unknown flag)
     (exits NON-ZERO when any check fails, and still prints the whole report)
@@ -277,6 +280,9 @@ sbx kit COMMAND                               # (experimental) kit artifacts
         (v0.51.0: no v1/v2 mixin into a v3 sandbox; asks approval for new permissions, no TTY → refuse)
     kit builder status | rm [-f] | history ls|inspect|logs|trace|export|rm [--yes]   # NEW
         (the shared sbx-kit-builder sandbox that builds v3 kits from source; its engine is the cache)
+        (any history call creates the builder, even ls; status has no --json; rm without -f refuses a
+         non-TTY stdin; rm -f with no builder exits 1 "not found"; history rm without --yes
+         refuses a non-TTY before creating the builder)
     (signing is keyless via Fulcio+Rekor unless --key; a local directory gets a
      kit.sig.bundle sidecar, an OCI reference gets an OCI referrer. Every push
      also attaches a SLSA provenance attestation, unsigned unless --sign)
@@ -298,10 +304,24 @@ sbx mcp COMMAND                               # NEW in v0.38.0 — register/mana
      space in places, so a two-space gutter rule does not split them.)
     mcp load NAME --sandbox SANDBOX            # attach to a RUNNING sandbox's gateway
     mcp unload NAME --sandbox SANDBOX          # NEW (v0.48.0) — detach without restarting the agent
+        (probed: not loaded / unknown name → 404 `MCP server "X" is not loaded in sandbox "S"`;
+         missing or stopped sandbox → 404 `does not exist or is not running`. A load that failed
+         at `initialize` still left an entry that unload removed. GET
+         /sandbox/NAME/mcp/gateway/servers → 405, so the loaded set is not readable over REST)
     mcp rm NAME [-f/--force] [--registration-only]   # v0.51.0: confirms, refuses with no TTY;
-        (a plain rm also clears the local OAuth token; --registration-only keeps it)
+        (a plain rm also clears the local OAuth token; --registration-only keeps it.
+         --registration-only also confirms → needs --force with no TTY; unknown name → exit 1
+         `MCP server "X" not found`)
     mcp add v0.51.0 extras: --header 'Name: value' (repeatable, ${placeholder} from secrets),
         --resource URI, --callback-port N, --disable-http2
+        (probed against a local listener answering 404, which registration accepts: headers go
+         out on the `initialize` POST; a ${placeholder} header is withheld until its secret
+         exists (status needs-secret); inspect --json adds headers[{name,value}] and
+         header_secrets[{placeholder,stored}]. --resource on a non-OAuth server → error;
+         --callback-port without add-time auth → warning only. --header, --resource and
+         --disable-http2 are refused with --command; a header with no colon is refused. Each
+         ${placeholder} also creates the global service secret mcp:NAME:PLACEHOLDER:endpoint,
+         which mcp rm (plain or --registration-only) leaves behind)
     (v0.51.0: `mcp ls --json` is a BARE ARRAY, each entry with its own gateway object)
     mcp auth [NAME|--all] [--scope S]... [--format text|json] [--verbose]
     mcp auth status [NAME|--all] [--format text|json] | auth rm [NAME|--all] [-f/--force]
@@ -318,9 +338,25 @@ sbx policy COMMAND                            # manage sandbox network/egress po
     policy check http [--sandbox S] [--method M] URL   # NEW (v0.51.0)
     policy refresh                              # NEW (v0.49.1) — re-fetch governance now
     policy approval ls [-q] | inspect ID | respond ID --option O   # NEW — pending user prompts
+        (governance network prompts, feature.network-user-prompts; ungoverned host: ls --json → [],
+         plain ls → "No pending approvals.", inspect/respond of an unknown ID → exit 1
+         `approval "ID" is not pending`; respond without --option → required-flag error)
     v0.51.0 on allow/deny/rm network: --protocol tcp|udp (UDP, v0.45.0) and HTTP scoping
         --method/--path/--query (repeatable --query name=value, v0.50.0). rm network gained
         -f/--force and refuses with no TTY. policy ls gained --created-via, --protocol, -q
+        Probed at v0.51.0: RESOURCES is ONE positional; a second is an error ("unexpected
+        second argument … the sandbox name is no longer positional"); `a,b` makes one rule
+        per host, with or without --method. Defaults: allow → [tcp], deny → [tcp,udp]. A UDP
+        rule is saved with a warning while feature.udp-egress is off. rm --resource drops a
+        host's tcp and udp rules together (rm has no --protocol). An HTTP rule comes off only
+        with its exact --method, --path and --query; less is "rule not found". --query without
+        --method is refused. REST rule rows now carry actions (net:connect:tcp|udp,
+        http:request:<verb>), methods, http_targets[{host,path,query[{name,value_pattern}],
+        query_match}], layer, sandbox_id, provenance.created_via; a sandbox-scoped row has
+        scope/applies_to "sandbox:NAME" and origin "scoped". --path, like --query, is refused
+        without --method; --protocol is refused with any of them. An empty RESOURCES is
+        "RESOURCES must contain at least one non-empty value". `sbx rm` of a sandbox purges
+        its scoped rules (none left in an unfiltered GET /policy/network/rules)
 sbx ports SANDBOX [flags]                     # manage published ports
 sbx prune [--dry-run] [--filter since=DURATION] [-f]   # NEW in v0.39.0 — remove stopped sandboxes
 sbx reset [-f] [--preserve-secrets]           # reset all sandboxes + clean state
@@ -338,6 +374,18 @@ sbx secret COMMAND                            # manage stored secrets
         | set [--all-sandboxes|--sandbox S] --registry HOST --password-stdin [--username U]
         | set-custom [--sandbox S] --host H... --env E --value V [--placeholder P]
         (v0.51.0 set-custom adds --value-stdin, --header, --name; set adds --registry-auth-endpoint)
+        (probed: --header/--name/--format are --cloud only, refused locally. --value-stdin and
+         --value are mutually exclusive; empty stdin → "value from stdin is empty". stdin drops
+         trailing CR/LF only, keeping spaces/tabs at either end; --value trims all surrounding
+         whitespace (spaces, tabs, newlines). The
+         masked value in `secret ls --json` keeps the stored length. Reusing an env → error
+         "already exists … with placeholder P" unless --placeholder P is given (updates in place,
+         host too); reusing an explicit placeholder replaces its entry with a warning. No prompt)
+        (--registry-auth-endpoint: accepted host-only, --all-sandboxes and --sandbox; non-HTTPS,
+         credentials, query or fragment → "registry auth endpoint must be an HTTPS URL without
+         credentials, query, or fragment"; without --registry → "requires --registry"; not
+         shown by secret ls --json. `secret rm HOST -f` on a registry host exits 0, removes
+         nothing; it needs `secret rm --registry HOST -f`)
     secret import [SERVICE] [--all] [--dry-run] [-f]   # NEW in v0.35.0
     (the positional SERVICE and --all are not new in v0.39.0 — the v0.37.0
      recon just never recorded them. The SDK has emitted both since then.)
@@ -497,7 +545,7 @@ Base: `http://localhost` over the unix socket. Echo router. `{name}` = sandbox i
 | POST | `/sandbox/{name}/credentials` | set sandbox secrets/credentials |
 | GET  | `/policy/network/rules` | list network policy rules — same JSON shape as `sbx policy ls --json` |
 | POST | `/policy/network/rules` | add/remove network policy rules (allow/deny/rm) |
-| POST | `/policy/network/check` | evaluate a network access request (`sbx policy check network`) |
+| POST | `/policy/network/check` | evaluate a network access request (`sbx policy check network`); also `check http` with `{type:"http", target:URL, method}` (method required), and takes `protocol` for a network check |
 | GET  | `/policy/network/profiles` | list policy profiles → `{"profiles":[…]}` |
 | POST | `/policy/refresh` | re-fetch remote governance policy (`Allow: OPTIONS, POST`) |
 | GET  | `/daemon/settings` | all settings → `{"settings":[…]}`; the JSON behind `sbx settings list` |
@@ -526,9 +574,13 @@ already present at v0.38.0. They had simply never been probed. The SDK calls non
   Paths for the new handlers were not probed.
 - `GET /daemon/health` gained `runtime_backend` (a bool, `false` here).
 - `GET /sandbox/{name}` gained `working_dir`, `effective_working_dir`, `host_mounts`,
-  `runtime_mounts` and `last_used_at`, none of them in `api.SandboxInfo` yet. `sbx inspect --json`
+  `runtime_mounts` and `last_used_at`, now hand-typed in `api.SandboxInfo`. `sbx inspect --json`
   gained `created_version`, `host_mounts`, `runtime_mounts`, `working_dir` and
-  `effective_working_dir`.
+  `effective_working_dir`, now on `Summary`. All present on a stopped sandbox too.
+  `host_mounts` entries are `{container_target, host_path, read_only}` and include additional
+  workspaces; a workspace-less sandbox has `[]` and `effective_working_dir`
+  `/home/agent/workspace`. `working_dir` was `""` and `runtime_mounts` `[]` in every probe,
+  `run -w` included.
 
 At v0.42.1 the server registers 61 handlers
 (`go tool nm /usr/bin/sbx | grep -oE 'sandboxapi\.\(\*ServerInterfaceWrapper\)\.[A-Za-z]+'`).

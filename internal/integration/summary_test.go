@@ -21,9 +21,10 @@ func TestSmoke_SandboxSummary(t *testing.T) {
 	c, err := client.New(ctx, client.WithAutoStart())
 	require.NoError(t, err)
 
+	ws := t.TempDir()
 	sb, err := sandbox.Create(ctx, c,
 		sandbox.WithAgent("shell"),
-		sandbox.WithWorkspace(t.TempDir()),
+		sandbox.WithWorkspace(ws),
 		sandbox.WithPublish("8080"),
 	)
 	require.NoError(t, err)
@@ -54,6 +55,24 @@ func TestSmoke_SandboxSummary(t *testing.T) {
 	}
 	require.Contains(t, names, "SUMMARY_PROBE_KEY",
 		"a sandbox-scoped custom secret must appear in the summary")
+
+	// The v0.51.0 keys, from the CLI and from the daemon.
+	require.NotEmpty(t, s.CreatedVersion)
+	require.Equal(t, ws, s.EffectiveWorkingDir, "commands start in the workspace")
+	wsMount := sandbox.HostMount{ContainerTarget: ws, HostPath: ws}
+	require.Contains(t, s.HostMounts, wsMount, "the workspace is a host mount")
+	require.NotNil(t, s.RuntimeMounts)
+
+	info, err := sb.Inspect(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, info.EffectiveWorkingDir)
+	require.Equal(t, ws, *info.EffectiveWorkingDir)
+	require.NotNil(t, info.HostMounts)
+	require.Contains(t, *info.HostMounts, wsMount)
+	require.NotNil(t, info.WorkingDir)
+	require.NotNil(t, info.RuntimeMounts)
+	require.NotNil(t, info.LastUsedAt)
+	require.False(t, info.LastUsedAt.IsZero())
 }
 
 // The CLI-side install checker. It must parse, and on a working host nothing

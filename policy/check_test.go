@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -102,4 +103,68 @@ func TestCheck_GovernanceFieldsDecode(t *testing.T) {
 	require.Equal(t, "acme", auth.Governance.Organization)
 	require.Equal(t, "ok", auth.Governance.LastSyncedStatus)
 	require.Equal(t, "synced", auth.Governance.LastSyncedMessage)
+}
+
+func TestCheckHTTP_RequestShapeAndMethodDefault(t *testing.T) {
+	var bodies []map[string]any
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/policy/network/check", r.URL.Path)
+		var body map[string]any
+		raw, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(raw, &body))
+		bodies = append(bodies, body)
+		// As sbx v0.51.0 answered a POST denied by an HTTP rule.
+		w.Write([]byte(`{"action":"http:request:post","allowed":false,"context":"sandbox:s1",
+			"deny_kind":"explicit","governance":{"active":false},"method":"POST","origin":"local",
+			"reason":"Denied by local rule","resource_type":"http:endpoint",
+			"resource_value":"h.example.com:443","rule":"r1",
+			"target":"https://h.example.com:443/v1/a","type":"http"}`))
+	}))
+	ctx := context.Background()
+
+	_, err := CheckHTTP(ctx, c, "https://h.example.com/v1/a")
+	require.NoError(t, err)
+	auth, err := CheckHTTP(ctx, c, "https://h.example.com/v1/a", WithCheckMethod("POST"), WithCheckSandbox("s1"))
+	require.NoError(t, err)
+
+	require.Equal(t, map[string]any{"type": "http", "target": "https://h.example.com/v1/a", "method": "GET"}, bodies[0],
+		"the daemon requires a method; GET is the CLI's default")
+	require.Equal(t, map[string]any{"type": "http", "target": "https://h.example.com/v1/a", "method": "POST", "sandbox_id": "s1"}, bodies[1])
+	require.False(t, auth.Allowed)
+	require.Equal(t, "POST", auth.Method)
+	require.Equal(t, "http:endpoint", auth.ResourceType)
+	require.Equal(t, "r1", auth.Rule)
+}
+
+// A network check must not carry a method, even when one is passed.
+func TestCheck_IgnoresCheckMethod(t *testing.T) {
+	var body map[string]any
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(raw, &body))
+		w.Write([]byte(`{"allowed":true,"type":"network"}`))
+	}))
+	_, err := Check(context.Background(), c, "a:443", WithCheckMethod("POST"))
+	require.NoError(t, err)
+	require.NotContains(t, body, "method")
+}
+
+func TestCheckHTTP_EmptyURLIsRejectedLocally(t *testing.T) {
+	c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("no request expected")
+	}))
+	_, err := CheckHTTP(context.Background(), c, "")
+	require.Error(t, err)
+}
+
+// The daemon always sends "allowed". A reply without it, or with the wrong
+// type, must not read as a silent deny.
+func TestCheckHTTP_MalformedReplyIsUnexpectedFormat(t *testing.T) {
+	for _, reply := range []string{`{}`, `{"allowed":"yes","type":"http"}`, `[]`} {
+		c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Write([]byte(reply))
+		}))
+		_, err := CheckHTTP(context.Background(), c, "https://h.example.com/")
+		require.ErrorIs(t, err, client.ErrUnexpectedFormat, "reply %s", reply)
+	}
 }
