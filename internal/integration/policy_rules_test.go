@@ -59,6 +59,19 @@ func TestPolicy_ScopedRules(t *testing.T) {
 	require.Equal(t, "/v1/**", r.HTTPTargets[0].Path)
 	require.Equal(t, []policy.QueryParam{{Name: "team", ValuePattern: "x"}}, r.HTTPTargets[0].Query)
 
+	// The HTTP check honours the rule's method and path.
+	url := "https://api.sdk-test.example/v1/items?team=x"
+	auth, err := policy.CheckHTTP(ctx, c, url, policy.WithCheckSandbox(scope))
+	require.NoError(t, err)
+	require.True(t, auth.Allowed, "%+v", auth)
+	require.Equal(t, "GET", auth.Method)
+	require.Equal(t, r.ID, auth.Rule)
+	auth, err = policy.CheckHTTP(ctx, c, url, policy.WithCheckSandbox(scope), policy.WithCheckMethod("POST"))
+	require.NoError(t, err)
+	require.False(t, auth.Allowed, "%+v", auth)
+	_, err = policy.CheckHTTP(ctx, c, "api.sdk-test.example", policy.WithCheckSandbox(scope))
+	require.Error(t, err, "the daemon rejects a URL that is not absolute")
+
 	// Removal must repeat every HTTP constraint.
 	require.Error(t, policy.RemoveRuleWith(ctx, c, scope, "api.sdk-test.example", policy.WithMethods("GET", "HEAD")))
 	require.NoError(t, policy.RemoveRuleWith(ctx, c, scope, "api.sdk-test.example", http...))

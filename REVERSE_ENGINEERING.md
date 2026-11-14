@@ -510,7 +510,7 @@ Base: `http://localhost` over the unix socket. Echo router. `{name}` = sandbox i
 | POST | `/sandbox/{name}/credentials` | set sandbox secrets/credentials |
 | GET  | `/policy/network/rules` | list network policy rules — same JSON shape as `sbx policy ls --json` |
 | POST | `/policy/network/rules` | add/remove network policy rules (allow/deny/rm) |
-| POST | `/policy/network/check` | evaluate a network access request (`sbx policy check network`) |
+| POST | `/policy/network/check` | evaluate a network access request (`sbx policy check network`); also `check http` with `{type:"http", target:URL, method}` (method required), and takes `protocol` for a network check |
 | GET  | `/policy/network/profiles` | list policy profiles → `{"profiles":[…]}` |
 | POST | `/policy/refresh` | re-fetch remote governance policy (`Allow: OPTIONS, POST`) |
 | GET  | `/daemon/settings` | all settings → `{"settings":[…]}`; the JSON behind `sbx settings list` |

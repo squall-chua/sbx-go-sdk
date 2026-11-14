@@ -326,6 +326,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | List rules | `policy ls` | v0.32.0 | `policy.List`, `policy.ListRaw` | ✅ REST as of v0.37.0, always `type=all` |
 | `ls` filters: `--wide`, `--source`, `--decision`, `--include-inactive` | `policy ls` | v0.35.0 | — | ❌ the fields are on `PolicyRule`; filter client-side |
 | Check whether an access is allowed | `policy check network` | v0.35.0 | `policy.Check` | ✅ |
+| Check an HTTP request | `policy check http` | v0.51.0 | `policy.CheckHTTP` | ✅ REST; `WithCheckMethod` (default GET), `WithCheckSandbox` |
 | Governance / org status on a check | — | v0.37.0 | `Authorization.Governance` | ⚠️ fields decoded; live behaviour unverified, no governed org to test against |
 | Inspect a policy or rule | `policy inspect` | v0.35.0 | `policy.InspectRaw` | ⚠️ raw text — no `--json` upstream |
 | List profiles | `policy profile ls` | v0.32.0 | `policy.ProfileNames`, `policy.Profiles` | ✅ `ProfileNames` is REST and typed — names are the daemon's own shape. Empty without a governed org |
@@ -710,6 +711,7 @@ for _, e := range log.BlockedHosts {
 // Ask whether the current policy would authorize an access, without connecting:
 auth, _ := policy.Check(ctx, c, "evil.test")                          // *policy.Authorization
 fmt.Println(auth.Allowed, auth.Rule, auth.Reason)
+auth, _ = policy.CheckHTTP(ctx, c, "https://api.example.com/v1/items", policy.WithCheckMethod("POST"))
 _, _ = policy.Check(ctx, c, "api.github.com", policy.WithCheckSandbox("review-bot"))
 
 detail, _ := policy.InspectRaw(ctx, c, "review-bot-net-allow") // human-rendered detail; selector from List
