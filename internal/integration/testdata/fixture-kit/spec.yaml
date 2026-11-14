@@ -1,9 +1,9 @@
-# A minimal kit that `sbx kit add` accepts.
+# A minimal v2 mixin for the validate, inspect, pack and signing tests.
 #
-# DO NOT add credentials, publishedPorts, volumes, setup.startup or
-# setup.files here. The kit-add recreate flow refuses all five pre-flight, and
-# TestSmoke_AddKitRecordsAbsolutePath would then fail for a reason unrelated to
-# what it tests.
+# It stays v2 because `kit sign` cannot load a v3 kit at sbx v0.51.0. Since
+# v0.51.0 `kit add` cannot use it either: a v2 mixin cannot join the v3 kit a
+# built-in agent now runs from. TestSmoke_AddKitRecordsAbsolutePath therefore
+# adds ../fixture-kit-v3 instead.
 #
 # sbx v0.38.0 gave schemaVersion "2" a decoder of its own, so the v1 key names
 # no longer parse under it: caps -> permissions, commands -> setup,

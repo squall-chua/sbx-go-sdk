@@ -70,6 +70,15 @@ func absLocal(ref string) string {
 // CLI's own message names. Verified 2026-07-27 against sbx v0.37.0; the list
 // is worded "does not yet" upstream and is expected to shrink.
 //
+// Since sbx v0.51.0 two more refusals apply, both verified live. The built-in
+// agents run from published kit spec v3 kits, and a v1 or v2 mixin cannot join
+// a v3 sandbox ("cannot mix v3 kits with v1/v2 kits in one sandbox"); add a v3
+// mixin instead. And a kit that requests a permission the sandbox was not
+// granted, such as a network allow, needs interactive approval: on the
+// non-interactive stdin AddKit gives the CLI, it refuses with "stdin is not a
+// terminal". `kit add` has no flag to pre-approve, so such a kit has to go in
+// at creation, through WithKit.
+//
 // The CLI also refuses a sandbox using a legacy git worktree, and one created
 // before the kit-add recreate feature shipped. Neither refusal is classified
 // here: both arrive as the CLI's own error, carrying its explanation.

@@ -19,7 +19,20 @@ import (
 // disturbing the repo.
 func fixtureKit(t *testing.T) string {
 	t.Helper()
-	src := filepath.Join("testdata", "fixture-kit", "spec.yaml")
+	return copyFixture(t, "fixture-kit")
+}
+
+// fixtureKitV3 is fixtureKit for the v3 mixin in testdata/fixture-kit-v3. It
+// lands in a directory named fixture-kit too, since a v3 kit takes its name
+// from its directory.
+func fixtureKitV3(t *testing.T) string {
+	t.Helper()
+	return copyFixture(t, "fixture-kit-v3")
+}
+
+func copyFixture(t *testing.T, name string) string {
+	t.Helper()
+	src := filepath.Join("testdata", name, "spec.yaml")
 	body, err := os.ReadFile(src)
 	require.NoError(t, err)
 
@@ -93,7 +106,7 @@ func TestSmoke_AddKitRecordsAbsolutePath(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { sb.Remove(ctx) })
 
-	dir := fixtureKit(t)
+	dir := fixtureKitV3(t)
 	t.Chdir(filepath.Dir(dir))
 
 	// Deliberately relative. This is the call that used to poison the list.
