@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
@@ -29,11 +27,6 @@ func WithStoppedLongerThan(d string) PruneOption {
 	return func(c *pruneConfig) { c.since = d }
 }
 
-var (
-	prunedLine   = regexp.MustCompile(`^Sandbox '(.+)' removed$`)
-	pruneNothing = "No stopped sandboxes to prune."
-)
-
 // Prune removes every stopped sandbox (`sbx prune`, added in sbx v0.39.0) and
 // returns the names it removed, or — with WithDryRun — the names it would have.
 // Nothing to prune is not an error: the result is an empty slice and a nil
@@ -50,37 +43,53 @@ var (
 // secrets.
 //
 // A running sandbox is never a candidate, whatever the options.
+//
+// A real prune does not read the CLI's confirmation lines: their wording
+// changed at v0.51.0 ("Sandbox 'X' removed" disappeared) and the CLI still
+// refuses --json without --dry-run. Instead it reads the candidates from a dry
+// run, runs the prune, and returns the candidates the daemon no longer lists.
 func Prune(ctx context.Context, c *client.Client, opts ...PruneOption) ([]string, error) {
 	cfg := &pruneConfig{}
 	for _, o := range opts {
 		o(cfg)
 	}
-	args := []string{"prune"}
-	if cfg.dryRun {
-		// The CLI accepts --json only on a dry run; a real prune refuses it.
-		args = append(args, "--dry-run", "--json")
-	} else {
-		args = append(args, "--force")
-	}
-	if cfg.since != "" {
-		args = append(args, "--filter", "since="+cfg.since)
-	}
-
 	r, err := c.Runner()
 	if err != nil {
 		return nil, err
 	}
-	out, err := r.Capture(ctx, nil, args...)
+	filter := []string{}
+	if cfg.since != "" {
+		filter = append(filter, "--filter", "since="+cfg.since)
+	}
+
+	// The CLI accepts --json only on a dry run; a real prune refuses it.
+	out, err := r.Capture(ctx, nil, append([]string{"prune", "--dry-run", "--json"}, filter...)...)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.dryRun {
-		return pruneCandidates(out)
+	candidates, err := pruneCandidates(out)
+	if err != nil || cfg.dryRun || len(candidates) == 0 {
+		return candidates, err
 	}
-	if strings.Contains(out, pruneNothing) {
-		return []string{}, nil
+
+	if _, err := r.Capture(ctx, nil, append([]string{"prune", "--force"}, filter...)...); err != nil {
+		return nil, err
 	}
-	return pruneRemoved(out), nil
+	left, err := List(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("prune: listing sandboxes after removal: %w", err)
+	}
+	present := make(map[string]bool, len(left))
+	for _, sb := range left {
+		present[sb.Name()] = true
+	}
+	removed := []string{}
+	for _, n := range candidates {
+		if !present[n] {
+			removed = append(removed, n)
+		}
+	}
+	return removed, nil
 }
 
 // pruneCandidates reads the would_remove list of `prune --dry-run --json`.
@@ -103,17 +112,4 @@ func pruneCandidates(out string) ([]string, error) {
 		names = append(names, s.Name)
 	}
 	return names, nil
-}
-
-// pruneRemoved reads the per-sandbox confirmation lines a real prune prints.
-// A removal the CLI reported no line for is simply not returned — the caller
-// asked what went, not what was attempted.
-func pruneRemoved(out string) []string {
-	names := []string{}
-	for _, ln := range strings.Split(out, "\n") {
-		if m := prunedLine.FindStringSubmatch(strings.TrimSpace(ln)); m != nil {
-			names = append(names, m[1])
-		}
-	}
-	return names
 }

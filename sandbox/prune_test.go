@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -57,25 +58,50 @@ const pruneDryRunOutput = `{
   "skipped_unknown_stop": ["no-stop-time"]
 }`
 
-// Captured verbatim from `sbx prune -f` at sbx v0.39.0; unchanged at v0.42.1.
-const pruneRemovedOutput = `Deleting sandbox probe-env...
-Sandbox 'probe-env' removed
-Deleting sandbox older...
-Sandbox 'older' removed`
+// clientPruning fakes both halves of a real prune: the sbx script prints
+// dryRun for a `--dry-run` call and nothing otherwise, and the daemon's
+// GET /sandbox reports remaining as what is left afterwards.
+func clientPruning(t *testing.T, argFile, dryRun string, remaining ...string) *client.Client {
+	t.Helper()
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	l, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sandbox", func(w http.ResponseWriter, _ *http.Request) {
+		infos := make([]map[string]string, 0, len(remaining))
+		for _, n := range remaining {
+			infos = append(infos, map[string]string{"name": n, "status": "running"})
+		}
+		require.NoError(t, json.NewEncoder(w).Encode(infos))
+	})
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+	bin := filepath.Join(t.TempDir(), "sbx")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" >> " + argFile + "\n" +
+		"case \"$*\" in *--dry-run*) cat <<'SBXOUT'\n" + dryRun + "\nSBXOUT\n;; esac\n"
+	require.NoError(t, os.WriteFile(bin, []byte(script), 0o755))
+	c, err := client.New(context.Background(), client.WithSocketPath(sock), client.WithBinaryPath(bin))
+	require.NoError(t, err)
+	return c
+}
 
+// A real prune reports the candidates the daemon no longer lists, not what the
+// CLI printed: "older" survived (say, it was restarted mid-prune), so it is not
+// reported as removed.
 func TestPrune_RemovesAndReportsNames(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := clientPrinting(t, argFile, pruneRemovedOutput)
+	c := clientPruning(t, argFile, pruneDryRunOutput, "older", "bystander")
 
 	got, err := Prune(context.Background(), c)
 	require.NoError(t, err)
-	require.Equal(t, []string{"probe-env", "older"}, got)
+	require.Equal(t, []string{"probe-env"}, got)
 
 	args, _ := os.ReadFile(argFile)
-	require.Contains(t, string(args), "prune --force",
-		"without --force the CLI refuses outright on a non-interactive stdin")
-	require.NotContains(t, string(args), "--dry-run")
-	require.NotContains(t, string(args), "--json", "the CLI refuses --json on a real prune")
+	lines := strings.Split(strings.TrimSpace(string(args)), "\n")
+	require.Equal(t, []string{"prune --dry-run --json", "prune --force"}, lines,
+		"without --force the CLI refuses outright on a non-interactive stdin; it refuses --json on a real prune")
 }
 
 func TestPrune_DryRunReadsTheCandidateList(t *testing.T) {
@@ -94,13 +120,14 @@ func TestPrune_DryRunReadsTheCandidateList(t *testing.T) {
 
 func TestPrune_SinceFilter(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
-	c := clientPrinting(t, argFile, pruneRemovedOutput)
+	c := clientPruning(t, argFile, pruneDryRunOutput)
 
 	_, err := Prune(context.Background(), c, WithStoppedLongerThan("24h"))
 	require.NoError(t, err)
 
 	args, _ := os.ReadFile(argFile)
-	require.Contains(t, string(args), "--filter since=24h")
+	require.Equal(t, "prune --dry-run --json --filter since=24h\nprune --force --filter since=24h\n", string(args),
+		"the dry run and the real prune must select the same sandboxes")
 }
 
 // Nothing to prune is the ordinary case, not a failure.
@@ -109,13 +136,16 @@ func TestPrune_NothingToPruneIsEmptyNotAnError(t *testing.T) {
 		out  string
 		opts []PruneOption
 	}{
-		{"No stopped sandboxes to prune.", nil},
+		{`{"would_remove": [], "skipped_unknown_stop": []}`, nil},
 		{`{"would_remove": [], "skipped_unknown_stop": []}`, []PruneOption{WithDryRun()}},
 	} {
-		c := clientPrinting(t, filepath.Join(t.TempDir(), "args.txt"), tc.out)
+		argFile := filepath.Join(t.TempDir(), "args.txt")
+		c := clientPruning(t, argFile, tc.out)
 		got, err := Prune(context.Background(), c, tc.opts...)
 		require.NoError(t, err)
 		require.Empty(t, got)
+		args, _ := os.ReadFile(argFile)
+		require.NotContains(t, string(args), "--force", "nothing to prune means no real prune is run")
 	}
 }
 
