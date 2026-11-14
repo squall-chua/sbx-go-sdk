@@ -372,8 +372,9 @@ sbx secret COMMAND                            # manage stored secrets
         | set-custom [--sandbox S] --host H... --env E --value V [--placeholder P]
         (v0.51.0 set-custom adds --value-stdin, --header, --name; set adds --registry-auth-endpoint)
         (probed: --header/--name/--format are --cloud only, refused locally. --value-stdin and
-         --value are mutually exclusive; empty stdin → "value from stdin is empty". stdin keeps
-         trailing spaces and drops a trailing newline; --value trims trailing whitespace. The
+         --value are mutually exclusive; empty stdin → "value from stdin is empty". stdin drops
+         trailing CR/LF only, keeping spaces/tabs at either end; --value trims all surrounding
+         whitespace (spaces, tabs, newlines). The
          masked value in `secret ls --json` keeps the stored length. Reusing an env → error
          "already exists … with placeholder P" unless --placeholder P is given (updates in place,
          host too); reusing an explicit placeholder replaces its entry with a warning. No prompt)

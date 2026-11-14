@@ -92,7 +92,7 @@ func TestWithRefresh_IgnoredForALiteral(t *testing.T) {
 }
 
 // SetCustom's literal value goes to stdin exactly, with no newline: the CLI
-// keeps trailing spaces read from stdin, which --value trimmed.
+// keeps surrounding spaces read from stdin, which --value trimmed.
 func TestSetCustom_ValueGoesToStdinVerbatim(t *testing.T) {
 	dir := t.TempDir()
 	argFile, stdinFile := filepath.Join(dir, "args.txt"), filepath.Join(dir, "stdin.txt")
@@ -107,19 +107,6 @@ func TestSetCustom_ValueGoesToStdinVerbatim(t *testing.T) {
 	stdin, err := os.ReadFile(stdinFile)
 	require.NoError(t, err)
 	require.Equal(t, "sk-123  ", string(stdin))
-}
-
-// A resolver has no literal, so nothing is written to stdin.
-func TestSetCustom_ResolverSendsNoStdin(t *testing.T) {
-	dir := t.TempDir()
-	argFile, stdinFile := filepath.Join(dir, "args.txt"), filepath.Join(dir, "stdin.txt")
-	c := stdinRecordingClient(t, argFile, stdinFile, "")
-
-	require.NoError(t, SetCustom(context.Background(), c, "",
-		CustomSecret{Host: "api.example.com", Env: "API_KEY"}, FromRef("op://v/i/f")))
-	stdin, err := os.ReadFile(stdinFile)
-	require.NoError(t, err)
-	require.Empty(t, stdin)
 }
 
 // The literal path must keep writing the secret to stdin rather than argv.

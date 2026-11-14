@@ -164,8 +164,8 @@ type RegistryCredential struct {
 	Password string
 	// AuthEndpoint is the exact HTTPS URL of the registry's Bearer auth
 	// endpoint, for a registry whose realm is on another host, e.g. a
-	// self-hosted GitLab's ".../jwt/auth" (`--registry-auth-endpoint`, sbx
-	// v0.51.0). Optional. The CLI rejects anything but an HTTPS URL without
+	// self-hosted GitLab's ".../jwt/auth" (`--registry-auth-endpoint`, added
+	// after sbx v0.42.1). Optional. The CLI rejects anything but an HTTPS URL without
 	// credentials, query or fragment.
 	AuthEndpoint string
 }

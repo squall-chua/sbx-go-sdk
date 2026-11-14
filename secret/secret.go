@@ -39,8 +39,9 @@ func scopeArgs(scope string) []string {
 //
 // The Value is written to the child's stdin (`--value-stdin`, sbx v0.51.0),
 // exactly as given and with no newline, so it never appears in the argument
-// vector or in the CLI's error text. The CLI keeps trailing spaces read this
-// way; through the SDK's earlier `--value` it trimmed them. Pass FromRef or
+// vector or in the CLI's error text. Read this way, the CLI drops only trailing
+// CR/LF and keeps spaces and tabs at either end. The SDK's earlier `--value`
+// trimmed all surrounding whitespace (verified live). Pass FromRef or
 // FromCommand instead of a Value to have the daemon resolve it on demand,
 // which keeps the secret out of the store as well.
 //

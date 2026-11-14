@@ -339,7 +339,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | --- | --- | --- | --- | --- |
 | Store a service token | `secret set` | v0.32.0 | `secret.SetToken` | ✅ written to stdin, never the argument vector |
 | Store registry credentials | `secret set --registry` | v0.32.0 | `secret.SetRegistry` | ✅ written to stdin; `AuthEndpoint` sets `--registry-auth-endpoint` for a cross-host auth realm (v0.51.0) |
-| Remove registry credentials | `secret rm --registry` | v0.32.0 | — | ❌ `secret.Remove` on a registry host exits 0 and removes nothing |
+| Remove registry credentials | `secret rm --registry` | by v0.42.1 | — | ❌ `secret.Remove` on a registry host exits 0 and removes nothing |
 | Store a custom host secret | `secret set-custom` | v0.32.0 | `secret.SetCustom` | ✅ the value goes on stdin (`--value-stdin`, v0.51.0), never in argv |
 | Host wildcards on a custom secret | `--host` | v0.33.0 | `secret.SetCustom` | ✅ the pattern passes straight through |
 | Import credentials from host env | `secret import` | v0.35.0 | `secret.Import`, `secret.ImportAll` | ✅ |
