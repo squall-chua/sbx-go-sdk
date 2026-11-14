@@ -867,7 +867,7 @@ fmt.Println(info.Name, info.Kind, info.Warnings)
 
 err := kit.Validate(ctx, c, "./my-kit")      // dir, ZIP or git repo — NOT an OCI reference
 if errors.Is(err, client.ErrKitRejected) {
-	// the CLI marked the artifact INVALID
+	// the CLI rejected the artifact ("valid": false)
 }
 
 _ = kit.Pack(ctx, c, "./my-kit", "./my-kit.zip") // out is required, never derived
@@ -1021,7 +1021,7 @@ if errors.As(err, &apiErr) {
 | `client.ErrIncompatibleVersion` | `WithStrictVersion` and the daemon is incompatible. |
 | `client.ErrDaemonNotRunning` | `EnsureRunning` couldn't make the socket healthy in time. |
 | `client.ErrBinaryNotFound` | the `sbx` binary isn't on `PATH` (any shell-out op). |
-| `client.ErrKitRejected` | `kit.Validate` — the CLI marked a kit artifact `INVALID:`. |
+| `client.ErrKitRejected` | `kit.Validate` — the CLI rejected a kit artifact (a `"valid": false` report). |
 
 ## Runnable examples
 
