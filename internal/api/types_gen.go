@@ -51,7 +51,6 @@ import (
 )
 
 var _ = time.Time{}
-var _ json.RawMessage
 
 // SandboxInfo
 type SandboxInfo struct {
