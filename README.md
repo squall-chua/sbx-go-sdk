@@ -960,6 +960,13 @@ _ = mcp.AddRemote(ctx, c, "deepwiki", "https://mcp.deepwiki.com/mcp")
 // A local stdio server. It runs on the HOST with your full permissions —
 // upstream documents this as ad-hoc development only.
 _ = mcp.AddLocal(ctx, c, "github", "npx", []string{"@modelcontextprotocol/server-github"})
+// Remote only. A static API key: ${api-key} is filled from the secret mcp:acme:api-key.
+_ = secret.SetToken(ctx, c, "", "mcp:acme:api-key", apiKey)
+_ = mcp.AddRemote(ctx, c, "acme", "https://mcp.acme.com/mcp",
+	mcp.WithHeaders("Authorization: Bearer ${api-key}"), mcp.WithDisableHTTP2())
+// An OAuth server: WithResource and WithCallbackPort only apply when it needs OAuth.
+_ = mcp.AddRemote(ctx, c, "oauthy", "https://mcp.oauthy.com/mcp",
+	mcp.WithResource("https://api.oauthy.com/mcp"), mcp.WithCallbackPort(8765))
 
 servers, _ := mcp.List(ctx, c)              // [{Name, Type: local|remote, Transport, Status}]
 d, _ := mcp.Inspect(ctx, c, "deepwiki")     // d.URL, d.Transport, d.RequiresOAuth, d.Issuer

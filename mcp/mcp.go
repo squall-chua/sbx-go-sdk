@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -106,6 +107,13 @@ type Details struct {
 	Issuer       string
 	Registration string
 
+	// Headers are the custom headers a remote server was added with
+	// (WithHeaders), values verbatim, placeholders unexpanded.
+	Headers []Header
+	// HeaderSecrets lists each placeholder the headers reference and whether
+	// its secret is stored yet.
+	HeaderSecrets []HeaderSecret
+
 	// Fields maps the labels the text `sbx mcp inspect` printed ("Name", "URL",
 	// "OAuth", …) to their values, for each field above that is set.
 	//
@@ -113,6 +121,19 @@ type Details struct {
 	// every field it reports has a named field above. Fields is rebuilt from
 	// them and will not grow.
 	Fields map[string]string
+}
+
+// Header is one custom header of a remote server.
+type Header struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// HeaderSecret is one ${placeholder} in a server's headers. Stored reports
+// whether the secret "mcp:<name>:<placeholder>" exists.
+type HeaderSecret struct {
+	Placeholder string `json:"placeholder"`
+	Stored      bool   `json:"stored"`
 }
 
 // Inspect returns the details of one registered server (`sbx mcp inspect NAME
@@ -139,7 +160,9 @@ func Inspect(ctx context.Context, c *client.Client, name string) (*Details, erro
 			Issuer               string `json:"issuer"`
 			RegistrationEndpoint string `json:"registration_endpoint"`
 		} `json:"oauth_providers"`
-		ResolvedCommand string `json:"resolved_command"`
+		ResolvedCommand string         `json:"resolved_command"`
+		Headers         []Header       `json:"headers"`
+		HeaderSecrets   []HeaderSecret `json:"header_secrets"`
 	}
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
 		return nil, fmt.Errorf("mcp inspect %q: %w: %w", name, client.ErrUnexpectedFormat, err)
@@ -157,6 +180,8 @@ func Inspect(ctx context.Context, c *client.Client, name string) (*Details, erro
 		Image:         v.Image,
 		Registry:      v.RegistryURL,
 		RequiresOAuth: v.RequiresOAuth,
+		Headers:       v.Headers,
+		HeaderSecrets: v.HeaderSecrets,
 	}
 	if len(v.OAuthProviders) > 0 {
 		d.Issuer = v.OAuthProviders[0].Issuer
@@ -186,6 +211,10 @@ type addConfig struct {
 	authServer    string
 	workingDir    string
 	scopes        []string
+	headers       []string
+	resource      string
+	callbackPort  int
+	disableHTTP2  bool
 }
 
 // AddOption configures AddRemote and AddLocal.
@@ -235,6 +264,41 @@ func WithScopes(scopes ...string) AddOption {
 // (`--dir`). Local servers only.
 func WithWorkingDir(dir string) AddOption { return func(c *addConfig) { c.workingDir = dir } }
 
+// WithHeaders sends custom HTTP headers to a remote server (`--header`, curl
+// form "Name: value", added in sbx v0.43.0). A "${placeholder}" in a value is
+// read at connect time from the secret "mcp:<name>:<placeholder>"
+// (secret.SetToken). Until that secret is stored, the server lists as
+// needs-secret and that header is not sent. Details.HeaderSecrets reports
+// which are stored.
+//
+// The CLI also stores a global service secret "mcp:<name>:<placeholder>:endpoint"
+// for each placeholder. Neither Remove nor RemoveRegistration deletes it; use
+// secret.Remove.
+//
+// Header values are recorded verbatim, and Inspect returns them, so put a
+// credential behind a placeholder rather than in the value. Remote servers
+// only: the CLI refuses it with AddLocal, and a header with no colon.
+func WithHeaders(headers ...string) AddOption {
+	return func(c *addConfig) { c.headers = append(c.headers, headers...) }
+}
+
+// WithResource overrides the RFC 8707 resource indicator sent during OAuth
+// (`--resource`), for a server whose published identifier is not its endpoint.
+// It must be an absolute URI. The CLI refuses it for a server that needs no
+// OAuth, and with AddLocal.
+func WithResource(uri string) AddOption { return func(c *addConfig) { c.resource = uri } }
+
+// WithCallbackPort binds the OAuth callback listener of an add-time
+// authorization to this local port (`--callback-port`; default an ephemeral
+// port), for a provider that needs the redirect URI pre-registered. With no
+// add-time authorization, as under WithSkipAuth or for a server with no OAuth,
+// the CLI only warns that it has no effect.
+func WithCallbackPort(port int) AddOption { return func(c *addConfig) { c.callbackPort = port } }
+
+// WithDisableHTTP2 keeps a remote server on HTTP/1.1 (`--disable-http2`, added
+// in sbx v0.45.0). The CLI refuses it with AddLocal.
+func WithDisableHTTP2() AddOption { return func(c *addConfig) { c.disableHTTP2 = true } }
+
 func (cfg *addConfig) args() []string {
 	var a []string
 	if cfg.local {
@@ -258,6 +322,18 @@ func (cfg *addConfig) args() []string {
 	}
 	for _, s := range cfg.scopes {
 		a = append(a, "--scope", s)
+	}
+	for _, h := range cfg.headers {
+		a = append(a, "--header", h)
+	}
+	if cfg.resource != "" {
+		a = append(a, "--resource", cfg.resource)
+	}
+	if cfg.callbackPort > 0 {
+		a = append(a, "--callback-port", strconv.Itoa(cfg.callbackPort))
+	}
+	if cfg.disableHTTP2 {
+		a = append(a, "--disable-http2")
 	}
 	return a
 }

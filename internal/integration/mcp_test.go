@@ -5,12 +5,16 @@ package integration
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/squall-chua/sbx-go-sdk/mcp"
 	"github.com/squall-chua/sbx-go-sdk/sandbox"
+	"github.com/squall-chua/sbx-go-sdk/secret"
 	"github.com/stretchr/testify/require"
 )
 
@@ -124,4 +128,55 @@ func TestSmoke_MCPRemoveRegistration(t *testing.T) {
 	var cliErr *client.CLIError
 	require.True(t, errors.As(err, &cliErr), "%v", err)
 	require.Contains(t, cliErr.Stderr, "not found")
+}
+
+// Registers a remote server against a local listener that answers 404 to
+// everything, which registration accepts, and records the headers it is sent.
+// Nothing leaves the host.
+func TestSmoke_MCPAddRemoteHeaders(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.New(ctx, client.WithAutoStart())
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	var probe, secretHdr []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		probe = append(probe, r.Header.Values("X-Sdk-Probe")...)
+		secretHdr = append(secretHdr, r.Header.Values("X-Sdk-Secret")...)
+		mu.Unlock()
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	const name = "sbx-go-sdk-headers"
+	t.Cleanup(func() { _ = mcp.Remove(ctx, c, name) })
+	// Registering a ${tok} header writes the :endpoint secret, and mcp rm
+	// leaves both behind.
+	t.Cleanup(func() { _ = secret.Remove(ctx, c, "", "mcp:"+name+":tok:endpoint") })
+	t.Cleanup(func() { _ = secret.Remove(ctx, c, "", "mcp:"+name+":tok") })
+	// The value a ${tok} header is filled from. The test makes it up.
+	require.NoError(t, secret.SetToken(ctx, c, "", "mcp:"+name+":tok", "sdk-probe-value", secret.WithOverwrite()))
+	base := []mcp.AddOption{mcp.WithSkipSSRFCheck(), mcp.WithSkipAuth()}
+
+	// --resource is refused for a server with no OAuth, which shows it reaches
+	// the CLI's resolver; the success path needs a real OAuth server.
+	err = mcp.AddRemote(ctx, c, name, srv.URL+"/mcp", append(base, mcp.WithResource("https://api.example.com/mcp"))...)
+	var cliErr *client.CLIError
+	require.True(t, errors.As(err, &cliErr), "%v", err)
+	require.Contains(t, cliErr.Stderr, "does not require OAuth")
+
+	require.NoError(t, mcp.AddRemote(ctx, c, name, srv.URL+"/mcp", append(base,
+		mcp.WithHeaders("X-Sdk-Probe: one", "X-Sdk-Secret: ${tok}"),
+		mcp.WithDisableHTTP2(), mcp.WithCallbackPort(18953))...))
+
+	mu.Lock()
+	require.Contains(t, probe, "one", "the header must reach the server")
+	require.Contains(t, secretHdr, "sdk-probe-value", "${tok} must be filled from mcp:NAME:tok")
+	mu.Unlock()
+
+	d, err := mcp.Inspect(ctx, c, name)
+	require.NoError(t, err)
+	require.Equal(t, []mcp.Header{{Name: "X-Sdk-Probe", Value: "one"}, {Name: "X-Sdk-Secret", Value: "${tok}"}}, d.Headers)
+	require.Equal(t, []mcp.HeaderSecret{{Placeholder: "tok", Stored: true}}, d.HeaderSecrets)
 }

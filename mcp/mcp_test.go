@@ -192,6 +192,53 @@ func TestAddRemote_Flags(t *testing.T) {
 	require.Contains(t, args, "--skip-ssrf-check")
 }
 
+func TestAddRemote_V051Flags(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := stubClient(t, argFile, "")
+
+	require.NoError(t, AddRemote(context.Background(), c, "acme", "https://mcp.acme.com/mcp",
+		WithHeaders("Authorization: Bearer ${api-key}", "Accept: application/json"),
+		WithResource("https://api.acme.com/mcp"),
+		WithCallbackPort(8765),
+		WithDisableHTTP2()))
+
+	args := recordedArgs(t, argFile)
+	require.Contains(t, args, "--header Authorization: Bearer ${api-key} --header Accept: application/json")
+	require.Contains(t, args, "--resource https://api.acme.com/mcp")
+	require.Contains(t, args, "--callback-port 8765")
+	require.Contains(t, args, "--disable-http2")
+}
+
+func TestAddRemote_V051FlagsAbsentWhenUnset(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := stubClient(t, argFile, "")
+	require.NoError(t, AddRemote(context.Background(), c, "acme", "https://mcp.acme.com/mcp"))
+	require.Equal(t, "mcp add acme --url https://mcp.acme.com/mcp", strings.TrimSpace(recordedArgs(t, argFile)))
+}
+
+// Captured from `sbx mcp inspect --json` at sbx v0.51.0, for a server added
+// with --header 'X-Probe: one' --header 'X-Two: ${tok}' and no secret stored.
+func TestInspect_Headers(t *testing.T) {
+	c := stubClient(t, filepath.Join(t.TempDir(), "args.txt"), `{
+  "name": "pr51-h",
+  "type": "remote",
+  "url": "http://127.0.0.1:18951/mcp",
+  "remote_transport": "streamable-http",
+  "requires_oauth": false,
+  "headers": [
+    {"name": "X-Probe", "value": "one"},
+    {"name": "X-Two", "value": "${tok}"}
+  ],
+  "header_secrets": [
+    {"placeholder": "tok", "stored": false}
+  ]
+}`)
+	d, err := Inspect(context.Background(), c, "pr51-h")
+	require.NoError(t, err)
+	require.Equal(t, []Header{{Name: "X-Probe", Value: "one"}, {Name: "X-Two", Value: "${tok}"}}, d.Headers)
+	require.Equal(t, []HeaderSecret{{Placeholder: "tok", Stored: false}}, d.HeaderSecrets)
+}
+
 // The CLI takes --args as one comma-separated list, per its own help examples.
 func TestAddLocal_JoinsArgsWithCommas(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")

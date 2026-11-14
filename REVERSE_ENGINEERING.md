@@ -311,6 +311,14 @@ sbx mcp COMMAND                               # NEW in v0.38.0 — register/mana
          `MCP server "X" not found`)
     mcp add v0.51.0 extras: --header 'Name: value' (repeatable, ${placeholder} from secrets),
         --resource URI, --callback-port N, --disable-http2
+        (probed against a local listener answering 404, which registration accepts: headers go
+         out on the `initialize` POST; a ${placeholder} header is withheld until its secret
+         exists (status needs-secret); inspect --json adds headers[{name,value}] and
+         header_secrets[{placeholder,stored}]. --resource on a non-OAuth server → error;
+         --callback-port without add-time auth → warning only. --header, --resource and
+         --disable-http2 are refused with --command; a header with no colon is refused. Each
+         ${placeholder} also creates the global service secret mcp:NAME:PLACEHOLDER:endpoint,
+         which mcp rm (plain or --registration-only) leaves behind)
     (v0.51.0: `mcp ls --json` is a BARE ARRAY, each entry with its own gateway object)
     mcp auth [NAME|--all] [--scope S]... [--format text|json] [--verbose]
     mcp auth status [NAME|--all] [--format text|json] | auth rm [NAME|--all] [-f/--force]
