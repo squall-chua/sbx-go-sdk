@@ -975,7 +975,8 @@ sb, _ := sandbox.Create(ctx, c,
 _ = mcp.Load(ctx, c, "deepwiki", sb.Name())
 _ = mcp.Unload(ctx, c, "deepwiki", sb.Name())  // detach; the registration stays
 
-_ = mcp.Remove(ctx, c, "deepwiki")          // registration only; hosted OAuth creds survive
+_ = mcp.Remove(ctx, c, "deepwiki")          // also clears the local OAuth token (v0.51.0)
+_ = mcp.RemoveRegistration(ctx, c, "github") // registration only; credentials are kept
 ```
 
 OAuth credentials stay on the host and never enter a sandbox. Registering an OAuth server would
@@ -1001,9 +1002,8 @@ successful call. A confidential client's secret has no flag — store it first a
 mode, _ := c.MCPGatewayMode(ctx)  // {Decision: "local"|"saas", GatewayURL, Reason}
 ```
 
-`List` and `Inspect` parse CLI tables — neither subcommand has a `--json` flag upstream
-([ADR 0002](docs/adr/0002-parse-sbx-table-output.md)). `mcp.Remove` on a name that was never
-registered is a silent success: the CLI exits 0. `mcp.AuthStatus` reports whether each OAuth server
+`List` and `Inspect` read the CLI's `--json` (since v0.42.0). `mcp.Remove` on a name that was never
+registered is an error since v0.45.0 (`MCP server "NAME" not found`). `mcp.AuthStatus` reports whether each OAuth server
 has a usable credential.
 
 ---
@@ -1164,8 +1164,8 @@ Verified live against `sandboxd` v0.42.1:
 - **`mcp.List` does not report a server's URL or command** — v0.39.0 dropped the endpoint from
   the listing, and the v0.42.0 JSON does not carry it either. `mcp.Server` has `Transport` and
   `Status` instead. Read the endpoint from `mcp.Inspect`.
-- **`sbx mcp rm` on an unregistered name exits 0** — so `mcp.Remove` cannot tell you whether it
-  actually removed anything. Call `mcp.List` first if that distinction matters.
+- **`sbx mcp rm` on an unregistered name is an error** since v0.45.0 (it exited 0 before), for
+  `mcp.Remove` and `mcp.RemoveRegistration` alike.
 - **`secret.SetToken`/`SetRegistry` keep the secret off the argument vector** — both write the
   value to the child process's stdin rather than passing it as a CLI argument, so unlike
   `SetCustom` it does not appear in the host process list. Confirmed by a live run: `--force`

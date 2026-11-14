@@ -218,6 +218,14 @@ func TestRemoveAndLoad(t *testing.T) {
 	require.Contains(t, args, "mcp load notion --sandbox my-sbx")
 }
 
+// --force is required: the CLI confirms and refuses with no TTY, as for rm.
+func TestRemoveRegistration(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := stubClient(t, argFile, "")
+	require.NoError(t, RemoveRegistration(context.Background(), c, "notion"))
+	require.Equal(t, "mcp rm --force --registration-only notion", strings.TrimSpace(recordedArgs(t, argFile)))
+}
+
 func TestUnload(t *testing.T) {
 	argFile := filepath.Join(t.TempDir(), "args.txt")
 	c := stubClient(t, argFile, "")
@@ -278,6 +286,7 @@ func TestEmptyNamesRejectedBeforeShellOut(t *testing.T) {
 	require.Error(t, Remove(ctx, c, ""))
 	require.Error(t, Load(ctx, c, "x", ""))
 	require.Error(t, Unload(ctx, c, "", "sb"))
+	require.Error(t, RemoveRegistration(ctx, c, ""))
 	require.Error(t, Unload(ctx, c, "x", ""))
 	_, err := AuthRemove(ctx, c, "")
 	require.Error(t, err)

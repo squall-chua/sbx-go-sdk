@@ -306,7 +306,9 @@ sbx mcp COMMAND                               # NEW in v0.38.0 — register/mana
          at `initialize` still left an entry that unload removed. GET
          /sandbox/NAME/mcp/gateway/servers → 405, so the loaded set is not readable over REST)
     mcp rm NAME [-f/--force] [--registration-only]   # v0.51.0: confirms, refuses with no TTY;
-        (a plain rm also clears the local OAuth token; --registration-only keeps it)
+        (a plain rm also clears the local OAuth token; --registration-only keeps it.
+         --registration-only also confirms → needs --force with no TTY; unknown name → exit 1
+         `MCP server "X" not found`)
     mcp add v0.51.0 extras: --header 'Name: value' (repeatable, ${placeholder} from secrets),
         --resource URI, --callback-port N, --disable-http2
     (v0.51.0: `mcp ls --json` is a BARE ARRAY, each entry with its own gateway object)

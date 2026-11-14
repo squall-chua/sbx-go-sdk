@@ -316,15 +316,31 @@ func AddLocal(ctx context.Context, c *client.Client, name, command string, cmdAr
 // the CLI exits 1 with `MCP server "NAME" not found`, returned as the raw
 // *client.CLIError. Through v0.42.1 it was a silent success.
 //
-// Since v0.51.0 the CLI also clears the server's local OAuth token
-// (`--registration-only` keeps it, and is not wrapped). Whether hosted OAuth
-// credentials survive was verified only through v0.42.1; drop them explicitly
-// with AuthRemove first if it matters.
+// Since v0.51.0 the CLI also clears the server's local OAuth token;
+// RemoveRegistration keeps it. Whether hosted OAuth credentials survive was
+// verified only through v0.42.1; drop them explicitly with AuthRemove first if
+// it matters.
 func Remove(ctx context.Context, c *client.Client, name string) error {
 	if name == "" {
 		return errors.New("mcp rm: name must not be empty")
 	}
 	return run(ctx, c, []string{"mcp", "rm", "--force", name})
+}
+
+// RemoveRegistration deletes only the local registration of a server (`sbx mcp
+// rm --force --registration-only NAME`), without starting the daemon or
+// touching credentials. Stored credentials stay, and a copy of the server
+// already loaded into a sandbox's gateway keeps running. It also removes the
+// registration's saved environment ownership and approval, and it works on a
+// damaged or orphaned registration.
+//
+// --force is always passed, because the CLI confirms and refuses with no TTY.
+// An unregistered name is an error from the CLI, as for Remove.
+func RemoveRegistration(ctx context.Context, c *client.Client, name string) error {
+	if name == "" {
+		return errors.New("mcp rm: name must not be empty")
+	}
+	return run(ctx, c, []string{"mcp", "rm", "--force", "--registration-only", name})
 }
 
 // Load attaches an already-registered server to a running sandbox's gateway

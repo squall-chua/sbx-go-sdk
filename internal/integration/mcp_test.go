@@ -101,3 +101,27 @@ func TestSmoke_MCPLoadUnload(t *testing.T) {
 	require.True(t, errors.As(err, &cliErr), "a second unload must fail: %v", err)
 	require.Contains(t, cliErr.Stderr, "is not loaded")
 }
+
+// RemoveRegistration drops the registration; a second call fails, since the
+// name is then unregistered.
+func TestSmoke_MCPRemoveRegistration(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.New(ctx, client.WithAutoStart())
+	require.NoError(t, err)
+
+	const name = "sbx-go-sdk-regonly"
+	t.Cleanup(func() { _ = mcp.Remove(ctx, c, name) })
+	require.NoError(t, mcp.AddLocal(ctx, c, name, "echo", []string{"hi"}))
+
+	require.NoError(t, mcp.RemoveRegistration(ctx, c, name))
+	servers, err := mcp.List(ctx, c)
+	require.NoError(t, err)
+	for _, s := range servers {
+		require.NotEqual(t, name, s.Name, "the registration must be gone")
+	}
+
+	err = mcp.RemoveRegistration(ctx, c, name)
+	var cliErr *client.CLIError
+	require.True(t, errors.As(err, &cliErr), "%v", err)
+	require.Contains(t, cliErr.Stderr, "not found")
+}
