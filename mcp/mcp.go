@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -106,6 +107,13 @@ type Details struct {
 	Issuer       string
 	Registration string
 
+	// Headers are the custom headers a remote server was added with
+	// (WithHeaders), values verbatim, placeholders unexpanded.
+	Headers []Header
+	// HeaderSecrets lists each placeholder the headers reference and whether
+	// its secret is stored yet.
+	HeaderSecrets []HeaderSecret
+
 	// Fields maps the labels the text `sbx mcp inspect` printed ("Name", "URL",
 	// "OAuth", …) to their values, for each field above that is set.
 	//
@@ -113,6 +121,19 @@ type Details struct {
 	// every field it reports has a named field above. Fields is rebuilt from
 	// them and will not grow.
 	Fields map[string]string
+}
+
+// Header is one custom header of a remote server.
+type Header struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// HeaderSecret is one ${placeholder} in a server's headers. Stored reports
+// whether the secret "mcp:<name>:<placeholder>" exists.
+type HeaderSecret struct {
+	Placeholder string `json:"placeholder"`
+	Stored      bool   `json:"stored"`
 }
 
 // Inspect returns the details of one registered server (`sbx mcp inspect NAME
@@ -139,7 +160,9 @@ func Inspect(ctx context.Context, c *client.Client, name string) (*Details, erro
 			Issuer               string `json:"issuer"`
 			RegistrationEndpoint string `json:"registration_endpoint"`
 		} `json:"oauth_providers"`
-		ResolvedCommand string `json:"resolved_command"`
+		ResolvedCommand string         `json:"resolved_command"`
+		Headers         []Header       `json:"headers"`
+		HeaderSecrets   []HeaderSecret `json:"header_secrets"`
 	}
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
 		return nil, fmt.Errorf("mcp inspect %q: %w: %w", name, client.ErrUnexpectedFormat, err)
@@ -157,6 +180,8 @@ func Inspect(ctx context.Context, c *client.Client, name string) (*Details, erro
 		Image:         v.Image,
 		Registry:      v.RegistryURL,
 		RequiresOAuth: v.RequiresOAuth,
+		Headers:       v.Headers,
+		HeaderSecrets: v.HeaderSecrets,
 	}
 	if len(v.OAuthProviders) > 0 {
 		d.Issuer = v.OAuthProviders[0].Issuer
@@ -186,6 +211,10 @@ type addConfig struct {
 	authServer    string
 	workingDir    string
 	scopes        []string
+	headers       []string
+	resource      string
+	callbackPort  int
+	disableHTTP2  bool
 }
 
 // AddOption configures AddRemote and AddLocal.
@@ -212,8 +241,9 @@ func WithSkipSSRFCheck() AddOption { return func(c *addConfig) { c.skipSSRFCheck
 // registration_endpoint, since dynamic client registration is then impossible.
 //
 // A confidential client's secret is not passed here and has no flag: store it
-// as the global secret "mcp:<name>.client_secret" (secret.SetToken) before
-// adding the server.
+// as the global secret "mcp:<name>:client_secret" (secret.SetToken) before
+// adding the server. sbx v0.51.0 documents a colon there; v0.42.1 documented
+// "mcp:<name>.client_secret".
 func WithClientID(id string) AddOption { return func(c *addConfig) { c.clientID = id } }
 
 // WithOAuthAuthorizationServer hand-supplies RFC 8414 authorization-server
@@ -234,6 +264,41 @@ func WithScopes(scopes ...string) AddOption {
 // WithWorkingDir sets the working directory of a local command server
 // (`--dir`). Local servers only.
 func WithWorkingDir(dir string) AddOption { return func(c *addConfig) { c.workingDir = dir } }
+
+// WithHeaders sends custom HTTP headers to a remote server (`--header`, curl
+// form "Name: value", added in sbx v0.43.0). A "${placeholder}" in a value is
+// read at connect time from the secret "mcp:<name>:<placeholder>"
+// (secret.SetToken). Until that secret is stored, the server lists as
+// needs-secret and that header is not sent. Details.HeaderSecrets reports
+// which are stored.
+//
+// The CLI also stores a global service secret "mcp:<name>:<placeholder>:endpoint"
+// for each placeholder. Neither Remove nor RemoveRegistration deletes it; use
+// secret.Remove.
+//
+// Header values are recorded verbatim, and Inspect returns them, so put a
+// credential behind a placeholder rather than in the value. Remote servers
+// only: the CLI refuses it with AddLocal, and a header with no colon.
+func WithHeaders(headers ...string) AddOption {
+	return func(c *addConfig) { c.headers = append(c.headers, headers...) }
+}
+
+// WithResource overrides the RFC 8707 resource indicator sent during OAuth
+// (`--resource`), for a server whose published identifier is not its endpoint.
+// It must be an absolute URI. The CLI refuses it for a server that needs no
+// OAuth, and with AddLocal.
+func WithResource(uri string) AddOption { return func(c *addConfig) { c.resource = uri } }
+
+// WithCallbackPort binds the OAuth callback listener of an add-time
+// authorization to this local port (`--callback-port`; default an ephemeral
+// port), for a provider that needs the redirect URI pre-registered. With no
+// add-time authorization, as under WithSkipAuth or for a server with no OAuth,
+// the CLI only warns that it has no effect.
+func WithCallbackPort(port int) AddOption { return func(c *addConfig) { c.callbackPort = port } }
+
+// WithDisableHTTP2 keeps a remote server on HTTP/1.1 (`--disable-http2`, added
+// in sbx v0.45.0). The CLI refuses it with AddLocal.
+func WithDisableHTTP2() AddOption { return func(c *addConfig) { c.disableHTTP2 = true } }
 
 func (cfg *addConfig) args() []string {
 	var a []string
@@ -258,6 +323,18 @@ func (cfg *addConfig) args() []string {
 	}
 	for _, s := range cfg.scopes {
 		a = append(a, "--scope", s)
+	}
+	for _, h := range cfg.headers {
+		a = append(a, "--header", h)
+	}
+	if cfg.resource != "" {
+		a = append(a, "--resource", cfg.resource)
+	}
+	if cfg.callbackPort > 0 {
+		a = append(a, "--callback-port", strconv.Itoa(cfg.callbackPort))
+	}
+	if cfg.disableHTTP2 {
+		a = append(a, "--disable-http2")
 	}
 	return a
 }
@@ -316,15 +393,31 @@ func AddLocal(ctx context.Context, c *client.Client, name, command string, cmdAr
 // the CLI exits 1 with `MCP server "NAME" not found`, returned as the raw
 // *client.CLIError. Through v0.42.1 it was a silent success.
 //
-// Since v0.51.0 the CLI also clears the server's local OAuth token
-// (`--registration-only` keeps it, and is not wrapped). Whether hosted OAuth
-// credentials survive was verified only through v0.42.1; drop them explicitly
-// with AuthRemove first if it matters.
+// Since v0.51.0 the CLI also clears the server's local OAuth token;
+// RemoveRegistration keeps it. Whether hosted OAuth credentials survive was
+// verified only through v0.42.1; drop them explicitly with AuthRemove first if
+// it matters.
 func Remove(ctx context.Context, c *client.Client, name string) error {
 	if name == "" {
 		return errors.New("mcp rm: name must not be empty")
 	}
 	return run(ctx, c, []string{"mcp", "rm", "--force", name})
+}
+
+// RemoveRegistration deletes only the local registration of a server (`sbx mcp
+// rm --force --registration-only NAME`), without starting the daemon or
+// touching credentials. Stored credentials stay, and a copy of the server
+// already loaded into a sandbox's gateway keeps running. It also removes the
+// registration's saved environment ownership and approval, and it works on a
+// damaged or orphaned registration.
+//
+// --force is always passed, because the CLI confirms and refuses with no TTY.
+// An unregistered name is an error from the CLI, as for Remove.
+func RemoveRegistration(ctx context.Context, c *client.Client, name string) error {
+	if name == "" {
+		return errors.New("mcp rm: name must not be empty")
+	}
+	return run(ctx, c, []string{"mcp", "rm", "--force", "--registration-only", name})
 }
 
 // Load attaches an already-registered server to a running sandbox's gateway
@@ -341,6 +434,24 @@ func Load(ctx context.Context, c *client.Client, name, sandbox string) error {
 		return errors.New("mcp load: sandbox must not be empty")
 	}
 	return run(ctx, c, []string{"mcp", "load", name, "--sandbox", sandbox})
+}
+
+// Unload detaches a server from a running sandbox's gateway (`sbx mcp unload
+// NAME --sandbox SANDBOX`, added in sbx v0.48.0). Connected agents lose its
+// tools at once, and a restart of the sandbox does not bring it back. The
+// registration stays; Load it again, or Remove it.
+//
+// A server that is not loaded, or a sandbox that does not exist or is not
+// running, is an error from the CLI (a daemon 404). A Load that failed can
+// still leave an entry behind for Unload to remove.
+func Unload(ctx context.Context, c *client.Client, name, sandbox string) error {
+	if name == "" {
+		return errors.New("mcp unload: name must not be empty")
+	}
+	if sandbox == "" {
+		return errors.New("mcp unload: sandbox must not be empty")
+	}
+	return run(ctx, c, []string{"mcp", "unload", name, "--sandbox", sandbox})
 }
 
 // AuthResult is the hosted OAuth state of one registered MCP server, as

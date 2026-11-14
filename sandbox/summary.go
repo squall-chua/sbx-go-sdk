@@ -6,14 +6,16 @@ import (
 	"fmt"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
+	"github.com/squall-chua/sbx-go-sdk/internal/api"
 )
 
 // Summary is the report `sbx inspect --json` prints: a wider view of a sandbox
 // than the daemon's own /sandbox/{name} response.
 //
-// Four things live here and nowhere else in the SDK — the auth mode, the
-// injected secrets, the count of active sessions, and whether the MCP gateway is
-// configured — because api.SandboxInfo carries none of them. Everything else
+// Five things live here and nowhere else in the SDK — the auth mode, the
+// injected secrets, the count of active sessions, whether the MCP gateway is
+// configured, and the creating sbx release — because api.SandboxInfo carries
+// none of them. Everything else
 // overlaps with Inspect, which is REST and cheaper.
 //
 // Assembled CLI-side, so this shells out. Fields the CLI omits when they are
@@ -58,7 +60,22 @@ type Summary struct {
 
 	DaemonVersion string `json:"daemon_version"`
 	DaemonUptime  string `json:"daemon_uptime"`
+
+	// CreatedVersion is the sbx release that created the sandbox, e.g.
+	// "v0.51.0". Added in v0.51.0; "" from an older CLI.
+	CreatedVersion string `json:"created_version"`
+
+	// WorkingDir, EffectiveWorkingDir, HostMounts and RuntimeMounts mirror the
+	// same-named Info fields (v0.51.0); see those.
+	WorkingDir          string            `json:"working_dir"`
+	EffectiveWorkingDir string            `json:"effective_working_dir"`
+	HostMounts          []HostMount       `json:"host_mounts"`
+	RuntimeMounts       []json.RawMessage `json:"runtime_mounts"`
 }
+
+// HostMount is one host directory bound into a sandbox. It is an alias so
+// code outside the SDK can name Info.HostMounts' element type.
+type HostMount = api.HostMount
 
 // NetworkPolicy names the policy in force for a sandbox.
 type NetworkPolicy struct {

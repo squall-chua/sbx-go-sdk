@@ -103,6 +103,23 @@ func TestSetRegistry_PasswordGoesToStdinNotArgv(t *testing.T) {
 	require.Equal(t, "ghp_secret\n", string(stdin))
 }
 
+func TestSetRegistry_AuthEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	argFile := filepath.Join(dir, "args.txt")
+	c := stdinRecordingClient(t, argFile, filepath.Join(dir, "stdin.txt"), "")
+
+	require.NoError(t, SetRegistry(context.Background(), c, "", RegistryCredential{
+		Host: "registry.example.com", Password: "pw", AuthEndpoint: "https://gitlab.example.com/jwt/auth",
+	}))
+	require.NoError(t, SetRegistry(context.Background(), c, "", RegistryCredential{Host: "ghcr.io", Password: "pw"}))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(args)), "\n")
+	require.Contains(t, lines, "secret set --all-sandboxes --registry registry.example.com --password-stdin --registry-auth-endpoint https://gitlab.example.com/jwt/auth")
+	require.Contains(t, lines, "secret set --all-sandboxes --registry ghcr.io --password-stdin")
+}
+
 // A bare `secret set --registry` stores a host-only entry as of sbx v0.38.0,
 // where it used to mean global. Global scope must therefore spell itself
 // --all-sandboxes so the SDK keeps storing an entry injected into every sandbox.

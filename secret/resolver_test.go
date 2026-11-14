@@ -87,8 +87,26 @@ func TestWithRefresh_IgnoredForALiteral(t *testing.T) {
 		CustomSecret{Host: "h", Env: "E", Value: "sk-1"}, WithRefresh("30m")))
 
 	args, _ := os.ReadFile(argFile)
-	require.Contains(t, string(args), "--value sk-1")
+	require.Contains(t, string(args), "--value-stdin")
 	require.NotContains(t, string(args), "--refresh")
+}
+
+// SetCustom's literal value goes to stdin exactly, with no newline: the CLI
+// keeps surrounding spaces read from stdin, which --value trimmed.
+func TestSetCustom_ValueGoesToStdinVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	argFile, stdinFile := filepath.Join(dir, "args.txt"), filepath.Join(dir, "stdin.txt")
+	c := stdinRecordingClient(t, argFile, stdinFile, "")
+
+	require.NoError(t, SetCustom(context.Background(), c, "sb",
+		CustomSecret{Host: "api.example.com", Env: "API_KEY", Value: "sk-123  ", Placeholder: "ph"}))
+
+	args, err := os.ReadFile(argFile)
+	require.NoError(t, err)
+	require.Equal(t, "secret set-custom --sandbox sb --host api.example.com --env API_KEY --value-stdin --placeholder ph\n", string(args))
+	stdin, err := os.ReadFile(stdinFile)
+	require.NoError(t, err)
+	require.Equal(t, "sk-123  ", string(stdin))
 }
 
 // The literal path must keep writing the secret to stdin rather than argv.

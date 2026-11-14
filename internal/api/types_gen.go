@@ -3,10 +3,16 @@
 // Re-verified at sbx v0.51.0 (daemon api 0.49.0) WITHOUT regenerating: the
 // v0.51.0 binary is stripped, with no symbol table and no DWARF, so dwarfgen
 // cannot run against it. Instead a live GET /sandbox/{name} was compared key
-// by key with SandboxInfo. The daemon emits five keys this type lacks —
-// working_dir, effective_working_dir, host_mounts, runtime_mounts,
-// last_used_at — which decode harmlessly as unknown fields. Nothing this type
-// declares has changed meaning. Typing the five is left for the feature work.
+// by key with SandboxInfo. Nothing this type declared had changed meaning.
+//
+// HAND-TYPED, not generated: the five keys the v0.51.0 daemon added —
+// SandboxInfo.WorkingDir, EffectiveWorkingDir, HostMounts, RuntimeMounts,
+// LastUsedAt — and the HostMount type. They are typed from live responses
+// of a running, a stopped and a workspace-less sandbox. All five are
+// pointers with omitempty, as an older daemon omits them. RuntimeMounts stays
+// *[]json.RawMessage: every probe returned [], so its element shape is
+// unknown. Re-running dwarfgen against an unstripped binary should reproduce
+// them; if it does not, keep these.
 //
 // Previously re-verified at sbx v0.42.1 (daemon api 0.28.0) by regenerating:
 // no wire-type change since v0.39.0, only the known artifacts described below.
@@ -39,7 +45,10 @@
 
 package api
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 var _ = time.Time{}
 
@@ -49,17 +58,41 @@ type SandboxInfo struct {
 	Agent                *string                          `json:"agent,omitempty"`
 	CreatedAt            *time.Time                       `json:"created_at,omitempty"`
 	CredentialSources    *map[string]CredentialSourceInfo `json:"credential_sources,omitempty"`
-	Id                   string                           `json:"id"`
-	Labels               *map[string]string               `json:"labels,omitempty"`
-	MountPolicyDenied    *bool                            `json:"mount_policy_denied,omitempty"`
-	Name                 string                           `json:"name"`
-	Ports                *[]PublishedPort                 `json:"ports,omitempty"`
-	Profile              *string                          `json:"profile,omitempty"`
-	SourceRepoDir        *string                          `json:"source_repo_dir,omitempty"`
-	Status               string                           `json:"status"`
-	StoppedAt            *time.Time                       `json:"stopped_at,omitempty"`
-	Workspace            string                           `json:"workspace"`
-	Worktree             *SandboxWorktree                 `json:"worktree,omitempty"`
+	// EffectiveWorkingDir is where commands start in the sandbox (`sbx exec
+	// NAME pwd` printed it in a probe): the workspace, or
+	// /home/agent/workspace without one. Hand-typed, v0.51.0.
+	EffectiveWorkingDir *string `json:"effective_working_dir,omitempty"`
+	// HostMounts lists host directories bound in. Probes saw the workspace
+	// and additional workspaces; --mount paths and the skills store were not
+	// checked. Hand-typed, v0.51.0.
+	HostMounts *[]HostMount       `json:"host_mounts,omitempty"`
+	Id         string             `json:"id"`
+	Labels     *map[string]string `json:"labels,omitempty"`
+	// LastUsedAt is when the sandbox was last used. Hand-typed; added to the
+	// daemon in v0.43.0.
+	LastUsedAt        *time.Time       `json:"last_used_at,omitempty"`
+	MountPolicyDenied *bool            `json:"mount_policy_denied,omitempty"`
+	Name              string           `json:"name"`
+	Ports             *[]PublishedPort `json:"ports,omitempty"`
+	Profile           *string          `json:"profile,omitempty"`
+	// RuntimeMounts is raw: every probe at v0.51.0 returned an empty list, so
+	// the element shape is unknown. Hand-typed, v0.51.0.
+	RuntimeMounts *[]json.RawMessage `json:"runtime_mounts,omitempty"`
+	SourceRepoDir *string            `json:"source_repo_dir,omitempty"`
+	Status        string             `json:"status"`
+	StoppedAt     *time.Time         `json:"stopped_at,omitempty"`
+	// WorkingDir is "" in every probe, including after a completed `run -w`,
+	// so what sets it is unknown. Hand-typed, v0.51.0.
+	WorkingDir *string          `json:"working_dir,omitempty"`
+	Workspace  string           `json:"workspace"`
+	Worktree   *SandboxWorktree `json:"worktree,omitempty"`
+}
+
+// HostMount is one host directory bound into a sandbox. Hand-typed, v0.51.0.
+type HostMount struct {
+	ContainerTarget string `json:"container_target"`
+	HostPath        string `json:"host_path"`
+	ReadOnly        bool   `json:"read_only"`
 }
 
 // WorkspaceMount

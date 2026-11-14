@@ -36,16 +36,21 @@ func scopeArgs(scope string) []string {
 }
 
 // SetCustom creates/updates a custom secret in scope ("" = global). EXPERIMENTAL.
-// The Value is passed as a `sbx secret set-custom --value` CLI argument, so it is
-// briefly visible in host process listings. Pass FromRef or FromCommand
-// instead of a Value to have the daemon resolve it on demand, which keeps the
-// secret itself out of both the argument vector and the store.
 //
-// Unlike SetToken, SetRegistry and Import, SetCustom has no pre-flight
-// existing-entry check and pipes nothing to stdin. If `set-custom` prompts to
-// overwrite an existing entry, it may hit the same silent-cancel-exit-0 shape
-// those three were fixed for (see README's "Known deviations & limitations")
-// — not verified either way; fixing it is out of scope here.
+// The Value is written to the child's stdin (`--value-stdin`, sbx v0.51.0),
+// exactly as given and with no newline, so it never appears in the argument
+// vector or in the CLI's error text. Read this way, the CLI drops only trailing
+// CR/LF and keeps spaces and tabs at either end. The SDK's earlier `--value`
+// trimmed all surrounding whitespace (verified live). Pass FromRef or
+// FromCommand instead of a Value to have the daemon resolve it on demand,
+// which keeps the secret out of the store as well.
+//
+// SetCustom has no pre-flight existing-entry check, and at v0.51.0 needs
+// none: no replace case prompts. Reusing an Env already set in scope is an
+// error ("already exists … with placeholder …") unless Placeholder repeats that
+// entry's placeholder, which updates it in place, host included. Reusing an
+// explicit Placeholder replaces the entry that held it, with only a warning.
+// All verified live.
 func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecret, opts ...SetOption) error {
 	var cfg setConfig
 	for _, o := range opts {
@@ -63,10 +68,11 @@ func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecr
 		args = append(args, "--host", h)
 	}
 	args = append(args, "--env", s.Env)
-	if resolver, resolved := cfg.resolverArgs(); resolved {
+	resolver, resolved := cfg.resolverArgs()
+	if resolved {
 		args = append(args, resolver...)
 	} else {
-		args = append(args, "--value", s.Value)
+		args = append(args, "--value-stdin")
 	}
 	if s.Placeholder != "" {
 		args = append(args, "--placeholder", s.Placeholder)
@@ -75,7 +81,11 @@ func SetCustom(ctx context.Context, c *client.Client, scope string, s CustomSecr
 	if err != nil {
 		return err
 	}
-	_, err = r.Capture(ctx, nil, args...)
+	if resolved {
+		_, err = r.Capture(ctx, nil, args...)
+		return err
+	}
+	_, err = r.CaptureStdin(ctx, strings.NewReader(s.Value), nil, args...)
 	return err
 }
 
@@ -270,6 +280,10 @@ const HostOnlyScope = "(host only)"
 
 // Remove deletes a secret (service) in scope ("" = global). Uses -f to skip the
 // confirmation prompt (the CLI would otherwise block on non-TTY stdin).
+//
+// It cannot remove a registry credential: for a registry host the CLI exits 0
+// and removes nothing (verified at sbx v0.51.0), because that needs `secret
+// rm --registry`, which the SDK does not wrap.
 func Remove(ctx context.Context, c *client.Client, scope, service string) error {
 	args := append([]string{"secret", "rm"}, scopeArgs(scope)...)
 	if service != "" {

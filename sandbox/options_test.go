@@ -88,21 +88,73 @@ func TestWithDenyNetworkAndStaticMCP_AbsentWhenUnset(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, args, "--deny-network")
 	require.NotContains(t, args, "--static-mcp")
-	require.NotContains(t, args, "--no-share-skills")
+	require.NotContains(t, args, "--skills")
 }
 
-// The flag is hidden from --help unless feature.shareSkills is on, but it
-// parses either way, so the SDK emits it unconditionally.
+// --no-share-skills is deprecated at sbx v0.51.0; the SDK emits --skills off.
 func TestWithoutSharedSkills(t *testing.T) {
 	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"), WithoutSharedSkills())
 
 	createArgs, err := d.toCreateArgs()
 	require.NoError(t, err)
-	require.Contains(t, createArgs, "--no-share-skills")
+	require.Subset(t, createArgs, []string{"--skills", "off"})
+	require.NotContains(t, createArgs, "--no-share-skills")
 
 	runArgs, err := d.toRunArgs()
 	require.NoError(t, err)
-	require.Contains(t, runArgs, "--no-share-skills")
+	require.Subset(t, runArgs, []string{"--skills", "off"})
+	require.NotContains(t, runArgs, "--no-share-skills")
+}
+
+func TestCreateTimeFlags_OnCreateAndRun(t *testing.T) {
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"),
+		WithSkills("readwrite"), WithPull("missing"),
+		WithMount("/abs/data:/data", "rel/cache:/cache"))
+	createArgs, err := d.toCreateArgs()
+	require.NoError(t, err)
+	runArgs, err := d.toRunArgs()
+	require.NoError(t, err)
+	for name, args := range map[string][]string{"create": createArgs, "run": runArgs} {
+		require.Subset(t, args, []string{"--skills", "readwrite"}, name)
+		require.Subset(t, args, []string{"--pull", "missing"}, name)
+		require.Contains(t, args, "/abs/data:/data", name)
+		require.Contains(t, args, filepath.Join(wd, "rel/cache")+":/cache", name)
+		require.Equal(t, 2, countFlag(args, "--mount"), name)
+	}
+}
+
+// The last skills option wins, whichever spelling set it.
+func TestWithSkills_LastWins(t *testing.T) {
+	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"), WithoutSharedSkills(), WithSkills("readonly"))
+	args, err := d.toCreateArgs()
+	require.NoError(t, err)
+	require.Subset(t, args, []string{"--skills", "readonly"})
+	require.Equal(t, 1, countFlag(args, "--skills"))
+}
+
+func TestRunOnlyFlags(t *testing.T) {
+	d := newDefinition(WithAgent("shell"), WithWorkspace("/ws"), WithRemoveOnExit(), WithWorkdir("sub"),
+		WithAgentArgs("-c", "true"))
+	runArgs, err := d.toRunArgs()
+	require.NoError(t, err)
+	require.Equal(t, []string{"run", "shell", "/ws", "--rm", "-w", "sub", "--", "-c", "true"}, runArgs)
+
+	createArgs, err := d.toCreateArgs()
+	require.NoError(t, err)
+	require.NotContains(t, createArgs, "--rm")
+	require.NotContains(t, createArgs, "-w")
+}
+
+func countFlag(args []string, flag string) int {
+	n := 0
+	for _, a := range args {
+		if a == flag {
+			n++
+		}
+	}
+	return n
 }
 
 func TestWithKit_EmitsRepeatedFlagOnCreate(t *testing.T) {

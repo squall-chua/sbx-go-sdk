@@ -3,30 +3,36 @@ package sandbox
 import (
 	"errors"
 	"io"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Definition is the create spec built from options.
 type Definition struct {
-	agent         string
-	workspaces    []string // each may carry a ":ro" suffix
-	name          string
-	cpus          int
-	memory        string
-	profile       string
-	template      string
-	clone         bool
-	publish       []string // -p specs, applied at create time
-	kits          []string // --kit refs, applied at create time
-	denyNetwork   []string // --deny-network hosts, applied at create time
-	env           []string // -e KEY=VALUE, or a bare KEY to inherit
-	envFile       []string // --env-file paths
-	staticMCP     []string // --static-mcp server names, fixed at create time
-	noShareSkills bool     // --no-share-skills, opt out of the shared skills store
-	agentArgs     []string
-	stdin         io.Reader
-	stdout        io.Writer
-	stderr        io.Writer
+	agent       string
+	workspaces  []string // each may carry a ":ro" suffix
+	name        string
+	cpus        int
+	memory      string
+	profile     string
+	template    string
+	clone       bool
+	publish     []string // -p specs, applied at create time
+	kits        []string // --kit refs, applied at create time
+	denyNetwork []string // --deny-network hosts, applied at create time
+	env         []string // -e KEY=VALUE, or a bare KEY to inherit
+	envFile     []string // --env-file paths
+	staticMCP   []string // --static-mcp server names, fixed at create time
+	skills      string   // --skills off|readonly|readwrite
+	mounts      []string // --mount HOST:SANDBOX_PATH, HOST made absolute when args are built
+	pull        string   // --pull always|missing|never
+	rm          bool     // run --rm
+	workdir     string   // run -w, this session only
+	agentArgs   []string
+	stdin       io.Reader
+	stdout      io.Writer
+	stderr      io.Writer
 }
 
 func newDefinition(opts ...Option) *Definition {
@@ -81,8 +87,14 @@ func (d *Definition) toCreateArgs() ([]string, error) {
 	for _, name := range d.staticMCP {
 		args = append(args, "--static-mcp", name)
 	}
-	if d.noShareSkills {
-		args = append(args, "--no-share-skills")
+	if d.skills != "" {
+		args = append(args, "--skills", d.skills)
+	}
+	for _, m := range d.mounts {
+		args = append(args, "--mount", absMount(m))
+	}
+	if d.pull != "" {
+		args = append(args, "--pull", d.pull)
 	}
 	if d.clone {
 		args = append(args, "--clone")
@@ -135,15 +147,44 @@ func (d *Definition) toRunArgs() ([]string, error) {
 	for _, name := range d.staticMCP {
 		args = append(args, "--static-mcp", name)
 	}
-	if d.noShareSkills {
-		args = append(args, "--no-share-skills")
+	if d.skills != "" {
+		args = append(args, "--skills", d.skills)
+	}
+	for _, m := range d.mounts {
+		args = append(args, "--mount", absMount(m))
+	}
+	if d.pull != "" {
+		args = append(args, "--pull", d.pull)
 	}
 	if d.clone {
 		args = append(args, "--clone")
+	}
+	if d.rm {
+		args = append(args, "--rm")
+	}
+	if d.workdir != "" {
+		args = append(args, "-w", d.workdir)
 	}
 	if len(d.agentArgs) > 0 {
 		args = append(args, "--")
 		args = append(args, d.agentArgs...)
 	}
 	return args, nil
+}
+
+// absMount makes the HOST half of a --mount HOST:SANDBOX_PATH spec absolute,
+// for the same reason as absLocal: the spec reaches the daemon, which may
+// resolve a relative path against its own working directory. The split is at
+// the last colon, as SANDBOX_PATH is a container path. A spec with no colon
+// passes through for the CLI to reject.
+func absMount(spec string) string {
+	i := strings.LastIndex(spec, ":")
+	if i <= 0 {
+		return spec
+	}
+	abs, err := filepath.Abs(spec[:i])
+	if err != nil {
+		return spec
+	}
+	return abs + spec[i:]
 }

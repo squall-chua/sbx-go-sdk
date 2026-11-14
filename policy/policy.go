@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
 )
@@ -48,24 +47,21 @@ func SetDefault(ctx context.Context, c *client.Client, name string) error {
 // The hosts go out as one comma-separated argument: sbx v0.51.0 takes a single
 // RESOURCES positional and rejects a second one.
 func Allow(ctx context.Context, c *client.Client, scope string, hosts ...string) error {
-	args := append([]string{"policy", "allow", "network"}, scopeArgs(scope)...)
-	return run(ctx, c, append(args, strings.Join(hosts, ","))...)
+	return AllowRule(ctx, c, scope, hosts)
 }
 
 // Deny adds a deny rule for the given hosts within scope ("" = global). The
 // hosts go out comma-separated, as for Allow.
 func Deny(ctx context.Context, c *client.Client, scope string, hosts ...string) error {
-	args := append([]string{"policy", "deny", "network"}, scopeArgs(scope)...)
-	return run(ctx, c, append(args, strings.Join(hosts, ","))...)
+	return DenyRule(ctx, c, scope, hosts)
 }
 
 // RemoveRule removes the network rule for resource within scope ("" = global).
+// Use RemoveRuleWith for an HTTP rule.
 // sbx requires a selector, so resource is mandatory. --force is always passed:
 // since sbx v0.51.0 the CLI refuses on a non-interactive stdin without it.
 func RemoveRule(ctx context.Context, c *client.Client, scope, resource string) error {
-	args := append([]string{"policy", "rm", "network"}, scopeArgs(scope)...)
-	args = append(args, "--resource", resource, "--force")
-	return run(ctx, c, args...)
+	return RemoveRuleWith(ctx, c, scope, resource)
 }
 
 // Reset clears all policies back to defaults. --force is always passed: the
@@ -73,6 +69,19 @@ func RemoveRule(ctx context.Context, c *client.Client, scope, resource string) e
 // is a refusal rather than an answer.
 func Reset(ctx context.Context, c *client.Client) error {
 	return run(ctx, c, "policy", "reset", "--force")
+}
+
+// Refresh makes sandboxd fetch and apply the governance policy now (`sbx
+// policy refresh`, added in sbx v0.49.1) instead of at its next poll. The
+// refreshed policy applies to new connections only. Per the CLI's help it also
+// invalidates the cached registry credential, and it never restarts the daemon
+// or stops a sandbox.
+//
+// Unverified: it was never run against a real daemon, because of that
+// credential side effect. It shells out to the CLI, not POST /policy/refresh,
+// because that op's body and reply were never observed.
+func Refresh(ctx context.Context, c *client.Client) error {
+	return run(ctx, c, "policy", "refresh")
 }
 
 // capture runs an sbx subcommand and returns its stdout text.
@@ -90,14 +99,37 @@ type PolicyRule struct {
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
 	PolicyID     string   `json:"policy_id"`
-	Scope        string   `json:"scope"`         // "global" or a sandbox scope
-	AppliesTo    string   `json:"applies_to"`    // "all" or a sandbox name
-	ResourceType string   `json:"resource_type"` // "network", "filesystem read", …
+	Scope        string   `json:"scope"`         // "global" or "sandbox:NAME"
+	AppliesTo    string   `json:"applies_to"`    // "all" or "sandbox:NAME"
+	ResourceType string   `json:"resource_type"` // "network", "http", "filesystem read", …
 	Decision     string   `json:"decision"`      // "allow" | "deny"
 	Resources    []string `json:"resources"`
-	Origin       string   `json:"origin"` // "local", "org" (remote governance), or "kit"
+	Origin       string   `json:"origin"` // "local", "scoped" (sandbox-scoped), "org" (remote governance), or "kit"
 	Status       string   `json:"status"` // "active" | "inactive"
 	Editable     bool     `json:"editable"`
+
+	// Actions are the operations the rule covers: "net:connect:tcp" and
+	// "net:connect:udp" for a network rule, "http:request:get" and so on for an
+	// HTTP rule.
+	Actions []string `json:"actions"`
+	// Methods and HTTPTargets are set on HTTP rules only. RemoveRuleWith needs
+	// them back to remove one.
+	Methods     []string     `json:"methods"`
+	HTTPTargets []HTTPTarget `json:"http_targets"`
+}
+
+// HTTPTarget is the host, path glob and query constraints of an HTTP rule.
+type HTTPTarget struct {
+	Host       string       `json:"host"`
+	Path       string       `json:"path"`
+	Query      []QueryParam `json:"query"`
+	QueryMatch string       `json:"query_match"` // "subset" when Query is set
+}
+
+// QueryParam is one required query parameter of an HTTP rule.
+type QueryParam struct {
+	Name         string `json:"name"`
+	ValuePattern string `json:"value_pattern"`
 }
 
 // List returns the daemon's policy rules (REST GET /policy/network/rules).

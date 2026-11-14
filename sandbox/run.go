@@ -40,12 +40,16 @@ func Run(ctx context.Context, c *client.Client, opts ...Option) (int, error) {
 }
 
 // Run re-attaches an existing sandbox (`sbx run --name SANDBOX [-- AGENT_ARGS]`),
-// inheriting terminal stdio. Returns the agent's exit code. Only WithAgentArgs and
-// WithStdio are honored; create-time options (WithWorkspace, WithCPUs, …) are ignored.
+// inheriting terminal stdio. Returns the agent's exit code. Only WithAgentArgs,
+// WithWorkdir and WithStdio are honored; create-time options (WithWorkspace,
+// WithCPUs, …) and WithRemoveOnExit are ignored.
 // Uses --name (not the positional form, deprecated in sbx v0.33.0).
 func (s *Sandbox) Run(ctx context.Context, opts ...Option) (int, error) {
 	d := newDefinition(opts...)
 	args := []string{"run", "--name", s.info.Name}
+	if d.workdir != "" {
+		args = append(args, "-w", d.workdir)
+	}
 	if len(d.agentArgs) > 0 {
 		args = append(args, "--")
 		args = append(args, d.agentArgs...)
