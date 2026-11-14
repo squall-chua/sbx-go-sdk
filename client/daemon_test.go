@@ -51,7 +51,7 @@ func TestDiagnose(t *testing.T) {
 
 	args, err := os.ReadFile(filepath.Join(dir, "args.txt"))
 	require.NoError(t, err)
-	require.Contains(t, string(args), "diagnose -o json")
+	require.Contains(t, string(args), "diagnose --json", "sbx v0.51.0 removed -o")
 	require.NotContains(t, string(args), "--upload",
 		"Diagnose must never ship the report to Docker support on its own")
 }
@@ -107,8 +107,8 @@ func TestLogout_AlwaysSkipsTheConfirmationPrompt(t *testing.T) {
 
 	args, err := os.ReadFile(argFile)
 	require.NoError(t, err)
-	require.Contains(t, string(args), "logout --yes",
-		"without --yes the prompt blocks on non-interactive stdin")
+	require.Contains(t, string(args), "logout --force",
+		"without --force the prompt blocks on non-interactive stdin; sbx v0.51.0 rejects --yes")
 }
 
 func TestDiagnose_FailCountDrivesOK(t *testing.T) {
@@ -116,7 +116,7 @@ func TestDiagnose_FailCountDrivesOK(t *testing.T) {
 	require.False(t, d.OK())
 }
 
-// `sbx diagnose -o json` exits 1 whenever a check fails, and still prints the
+// `sbx diagnose --json` exits 1 whenever a check fails, and still prints the
 // whole report. Reporting a broken host is the job, so the report must survive
 // the exit code — the shape a caller most needs is exactly the one the CLI
 // flags as an error.
