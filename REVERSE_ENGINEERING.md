@@ -321,6 +321,9 @@ sbx policy COMMAND                            # manage sandbox network/egress po
     policy check http [--sandbox S] [--method M] URL   # NEW (v0.51.0)
     policy refresh                              # NEW (v0.49.1) — re-fetch governance now
     policy approval ls [-q] | inspect ID | respond ID --option O   # NEW — pending user prompts
+        (governance network prompts, feature.network-user-prompts; ungoverned host: ls --json → [],
+         plain ls → "No pending approvals.", inspect/respond of an unknown ID → exit 1
+         `approval "ID" is not pending`; respond without --option → required-flag error)
     v0.51.0 on allow/deny/rm network: --protocol tcp|udp (UDP, v0.45.0) and HTTP scoping
         --method/--path/--query (repeatable --query name=value, v0.50.0). rm network gained
         -f/--force and refuses with no TTY. policy ls gained --created-via, --protocol, -q
