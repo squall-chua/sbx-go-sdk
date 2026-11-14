@@ -213,7 +213,7 @@ func TestRemoveAndLoad(t *testing.T) {
 	require.NoError(t, Load(context.Background(), c, "notion", "my-sbx"))
 
 	args := recordedArgs(t, argFile)
-	require.Contains(t, args, "mcp rm notion")
+	require.Contains(t, args, "mcp rm --force notion", "sbx v0.51.0 refuses without --force on a non-interactive stdin")
 	require.Contains(t, args, "mcp load notion --sandbox my-sbx")
 }
 
@@ -255,7 +255,7 @@ func TestAuthRemove(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "notion", got[0].ServerName)
-	require.Contains(t, recordedArgs(t, argFile), "mcp auth rm notion --format json")
+	require.Contains(t, recordedArgs(t, argFile), "mcp auth rm --force notion --format json")
 }
 
 func TestEmptyNamesRejectedBeforeShellOut(t *testing.T) {

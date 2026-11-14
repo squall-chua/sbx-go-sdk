@@ -54,10 +54,11 @@ func Deny(ctx context.Context, c *client.Client, scope string, hosts ...string) 
 }
 
 // RemoveRule removes the network rule for resource within scope ("" = global).
-// sbx requires a selector, so resource is mandatory.
+// sbx requires a selector, so resource is mandatory. --force is always passed:
+// since sbx v0.51.0 the CLI refuses on a non-interactive stdin without it.
 func RemoveRule(ctx context.Context, c *client.Client, scope, resource string) error {
 	args := append([]string{"policy", "rm", "network"}, scopeArgs(scope)...)
-	args = append(args, "--resource", resource)
+	args = append(args, "--resource", resource, "--force")
 	return run(ctx, c, args...)
 }
 

@@ -308,8 +308,9 @@ func AddLocal(ctx context.Context, c *client.Client, name, command string, cmdAr
 	return run(ctx, c, append(args, cfg.args()...))
 }
 
-// Remove deletes a registered server (`sbx mcp rm NAME`). There is no
-// confirmation prompt, and removing a name that was never registered is a
+// Remove deletes a registered server (`sbx mcp rm --force NAME`). --force is
+// always passed: since sbx v0.51.0 the CLI asks for confirmation and refuses
+// outright on a non-interactive stdin. Removing a name that was never registered is a
 // silent success — the CLI exits 0.
 //
 // This removes only the local registration. Hosted OAuth credentials survive
@@ -318,7 +319,7 @@ func Remove(ctx context.Context, c *client.Client, name string) error {
 	if name == "" {
 		return errors.New("mcp rm: name must not be empty")
 	}
-	return run(ctx, c, []string{"mcp", "rm", name})
+	return run(ctx, c, []string{"mcp", "rm", "--force", name})
 }
 
 // Load attaches an already-registered server to a running sandbox's gateway
@@ -411,8 +412,9 @@ func AuthStatus(ctx context.Context, c *client.Client) ([]AuthResult, error) {
 }
 
 // AuthRemove deletes the hosted OAuth credentials of one registered server
-// (`sbx mcp auth rm NAME`), leaving its registration in place. It returns the
-// resulting state of that server.
+// (`sbx mcp auth rm --force NAME`), leaving its registration in place. It
+// returns the resulting state of that server. --force is always passed: since
+// sbx v0.51.0 the CLI refuses on a non-interactive stdin without it.
 //
 // Removing credentials a server never had is a success, not an error: the CLI
 // reports "No local OAuth token found" and exits 0.
@@ -421,7 +423,7 @@ func AuthRemove(ctx context.Context, c *client.Client, name string) ([]AuthResul
 		return nil, errors.New("mcp auth rm: name must not be empty")
 	}
 	return decodeAuthResults(ctx, c, "mcp auth rm",
-		[]string{"mcp", "auth", "rm", name, "--format", "json"})
+		[]string{"mcp", "auth", "rm", "--force", name, "--format", "json"})
 }
 
 func decodeAuthResults(ctx context.Context, c *client.Client, what string, args []string) ([]AuthResult, error) {

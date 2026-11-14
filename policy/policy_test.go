@@ -65,7 +65,7 @@ func TestPolicyMutations(t *testing.T) {
 	require.Contains(t, lines, "policy init balanced")
 	require.Contains(t, lines, "policy allow network example.com api.github.com")
 	require.Contains(t, lines, "policy deny network --sandbox mysandbox evil.example")
-	require.Contains(t, lines, "policy rm network --sandbox mysandbox --resource evil.example")
+	require.Contains(t, lines, "policy rm network --sandbox mysandbox --resource evil.example --force")
 	require.Contains(t, lines, "policy reset")
 }
 
