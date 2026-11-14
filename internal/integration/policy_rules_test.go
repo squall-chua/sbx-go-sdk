@@ -14,7 +14,8 @@ import (
 )
 
 // TestPolicy_ScopedRules adds, reads back and removes rules in a throwaway
-// sandbox's scope, so the host's global policy is never touched.
+// sandbox's scope, so the host's global policy is never touched. Removing the
+// sandbox purges its scoped rules, so a failed assertion leaks nothing.
 func TestPolicy_ScopedRules(t *testing.T) {
 	ctx := context.Background()
 	c, err := client.New(ctx, client.WithAutoStart())

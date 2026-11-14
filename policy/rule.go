@@ -22,8 +22,9 @@ type ruleConfig struct {
 // WithProtocols sets the transports a rule covers (`--protocol`, "tcp" or
 // "udp", added in sbx v0.45.0). Unset, an allow covers tcp and a deny covers
 // both. The CLI saves a UDP rule even while UDP egress is off, and only warns
-// (enable feature.udp-egress); the SDK drops that warning. RemoveRuleWith
-// rejects this option.
+// (enable feature.udp-egress); the SDK drops that warning. The CLI refuses it
+// together with WithMethods, WithPath or WithQuery, and RemoveRuleWith rejects
+// it.
 func WithProtocols(protocols ...string) RuleOption {
 	return func(c *ruleConfig) { c.protocols = append(c.protocols, protocols...) }
 }

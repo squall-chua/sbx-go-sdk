@@ -336,7 +336,10 @@ sbx policy COMMAND                            # manage sandbox network/egress po
         --method is refused. REST rule rows now carry actions (net:connect:tcp|udp,
         http:request:<verb>), methods, http_targets[{host,path,query[{name,value_pattern}],
         query_match}], layer, sandbox_id, provenance.created_via; a sandbox-scoped row has
-        scope/applies_to "sandbox:NAME" and origin "scoped"
+        scope/applies_to "sandbox:NAME" and origin "scoped". --path, like --query, is refused
+        without --method; --protocol is refused with any of them. An empty RESOURCES is
+        "RESOURCES must contain at least one non-empty value". `sbx rm` of a sandbox purges
+        its scoped rules (none left in an unfiltered GET /policy/network/rules)
 sbx ports SANDBOX [flags]                     # manage published ports
 sbx prune [--dry-run] [--filter since=DURATION] [-f]   # NEW in v0.39.0 — remove stopped sandboxes
 sbx reset [-f] [--preserve-secrets]           # reset all sandboxes + clean state
