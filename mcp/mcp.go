@@ -241,8 +241,9 @@ func WithSkipSSRFCheck() AddOption { return func(c *addConfig) { c.skipSSRFCheck
 // registration_endpoint, since dynamic client registration is then impossible.
 //
 // A confidential client's secret is not passed here and has no flag: store it
-// as the global secret "mcp:<name>.client_secret" (secret.SetToken) before
-// adding the server.
+// as the global secret "mcp:<name>:client_secret" (secret.SetToken) before
+// adding the server. sbx v0.51.0 documents a colon there; v0.42.1 documented
+// "mcp:<name>.client_secret".
 func WithClientID(id string) AddOption { return func(c *addConfig) { c.clientID = id } }
 
 // WithOAuthAuthorizationServer hand-supplies RFC 8414 authorization-server

@@ -1003,7 +1003,7 @@ st, _ := mcp.AuthStatus(ctx, c)   // []mcp.AuthResult; .Authorized() per server
 
 `Authorize` refreshes a merely-expired credential without consent, so `onURL` may never fire on a
 successful call. A confidential client's secret has no flag — store it first as the global secret
-`mcp:<name>.client_secret` (`secret.SetToken`), then pass `mcp.WithClientID`.
+`mcp:<name>:client_secret` (`secret.SetToken`; before v0.51.0 the help said `mcp:<name>.client_secret`), then pass `mcp.WithClientID`.
 
 ```go
 mode, _ := c.MCPGatewayMode(ctx)  // {Decision: "local"|"saas", GatewayURL, Reason}
