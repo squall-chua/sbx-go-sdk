@@ -355,6 +355,7 @@ shipped in; `v0.32.0` is the SDK's baseline, the release it debuted against.
 | --- | --- | --- | --- | --- |
 | Inspect a kit | `kit inspect` | v0.34.0 | `kit.Inspect` | ⚠️ upstream omits the `files/` payload from `--json` |
 | Validate a kit | `kit validate` | v0.34.0 | `kit.Validate` | ✅ OCI references are refused by the CLI |
+| Inspect/validate offline, inspect resolved | `kit inspect --offline/--resolved`, `kit validate --offline` | v0.49.1 / v0.51.0 | `kit.InspectWith`, `kit.ValidateWith` + `kit.WithOffline`, `kit.WithResolved` | ⚠️ `--resolved` unverified: no `extends:` parent resolves at v0.51.0 |
 | Pack a kit into a ZIP | `kit pack` | v0.34.0 | `kit.Pack` | ✅ |
 | Push / pull an OCI v2 artifact | `kit push`, `kit pull` | v0.34.0 | `kit.Push`, `kit.Pull` | ⚠️ never completed against a live registry |
 | Attach kits at create time | `create --kit` | v0.34.0 | `sandbox.WithKit` | ✅ |
@@ -879,6 +880,7 @@ err := kit.Validate(ctx, c, "./my-kit")      // dir, ZIP or git repo — NOT an 
 if errors.Is(err, client.ErrKitRejected) {
 	// the CLI rejected the artifact ("valid": false)
 }
+_ = kit.ValidateWith(ctx, c, "./my-kit", kit.WithOffline()) // no daemon policy; local dir/ZIP only, no v3 source kits
 
 _ = kit.Pack(ctx, c, "./my-kit", "./my-kit.zip") // out is required, never derived
 _ = kit.Pull(ctx, c, "ghcr.io/me/kit:v1", "./my-kit.zip")

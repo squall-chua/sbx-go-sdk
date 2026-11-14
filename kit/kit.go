@@ -14,6 +14,7 @@ package kit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -98,11 +99,63 @@ type Info struct {
 // as client.ErrKitRejected, which only Validate produces. The refusal is
 // plain text on stderr, not JSON, even with --json set.
 func Inspect(ctx context.Context, c *client.Client, ref string) (Info, error) {
+	return InspectWith(ctx, c, ref)
+}
+
+// LoadOption configures InspectWith and ValidateWith.
+type LoadOption func(*loadConfig)
+
+type loadConfig struct {
+	resolved, offline bool
+}
+
+// WithResolved merges the kit's extends: parent into the report
+// (`--resolved`), so it shows what sbx applies rather than only what the kit
+// declares. InspectWith only: ValidateWith refuses it, as the CLI has no such
+// flag for validate.
+//
+// Added in sbx v0.51.0, where no parent could be resolved in a live
+// probe: built-in agent names are refused as "no longer a built-in agent",
+// and an OCI reference or a path is not accepted as a parent. A kit without
+// extends: reports the same with or without it. How Info looks after a real
+// merge is unverified.
+func WithResolved() LoadOption { return func(c *loadConfig) { c.resolved = true } }
+
+// WithOffline skips the daemon-backed kit policy (kit.allowedSources,
+// kit.allowLocalKits, kit.requireSignature), so the call needs neither
+// sandboxd nor a sign-in (`--offline`, sbx v0.49.1).
+//
+// The CLI then accepts only a local directory or ZIP; anything else is
+// refused as a plain *client.CLIError. A kit spec v3 source kit cannot load
+// offline either ("this load path has no kit builder configured"), with or
+// without a dockerfile. Through ValidateWith that refusal is a "valid": false
+// report, so it wraps client.ErrKitRejected even though the kit itself may
+// be fine.
+func WithOffline() LoadOption { return func(c *loadConfig) { c.offline = true } }
+
+func (c *loadConfig) args() []string {
+	var a []string
+	if c.resolved {
+		a = append(a, "--resolved")
+	}
+	if c.offline {
+		a = append(a, "--offline")
+	}
+	return a
+}
+
+// InspectWith is Inspect with options.
+func InspectWith(ctx context.Context, c *client.Client, ref string, opts ...LoadOption) (Info, error) {
+	var cfg loadConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	r, err := c.Runner()
 	if err != nil {
 		return Info{}, err
 	}
-	out, err := r.Capture(ctx, nil, "kit", "inspect", "--json", ref)
+	args := append(append([]string{"kit", "inspect", "--json"}, cfg.args()...), ref)
+	out, err := r.Capture(ctx, nil, args...)
 	if err != nil {
 		return Info{}, err
 	}
@@ -133,11 +186,25 @@ func Inspect(ctx context.Context, c *client.Client, ref string) (Info, error) {
 // "field \"mixins\" is accepted but not yet implemented" — and those warnings
 // are lost here. Inspect returns them structured, in Info.Warnings.
 func Validate(ctx context.Context, c *client.Client, ref string) error {
+	return ValidateWith(ctx, c, ref)
+}
+
+// ValidateWith is Validate with options. Only WithOffline applies; WithResolved
+// is refused before the CLI runs.
+func ValidateWith(ctx context.Context, c *client.Client, ref string, opts ...LoadOption) error {
+	var cfg loadConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	if cfg.resolved {
+		return errors.New("kit: WithResolved does not apply to ValidateWith; kit validate has no --resolved flag")
+	}
 	r, err := c.Runner()
 	if err != nil {
 		return err
 	}
-	out, err := r.Capture(ctx, nil, "kit", "validate", "--json", ref)
+	args := append(append([]string{"kit", "validate", "--json"}, cfg.args()...), ref)
+	out, err := r.Capture(ctx, nil, args...)
 	if err != nil {
 		var report struct {
 			Valid *bool  `json:"valid"`

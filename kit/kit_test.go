@@ -242,3 +242,52 @@ func TestValidate_ValidReportWithFailingExitIsNotErrKitRejected(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, client.ErrKitRejected)
 }
+
+func TestInspectWith_Argv(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, sampleJSON, "", 0)
+	ctx := context.Background()
+
+	_, err := Inspect(ctx, c, "./k")
+	require.NoError(t, err)
+	_, err = InspectWith(ctx, c, "./k", WithResolved(), WithOffline())
+	require.NoError(t, err)
+
+	data, _ := os.ReadFile(argFile)
+	require.Equal(t,
+		"kit inspect --json ./k\n"+
+			"kit inspect --json --resolved --offline ./k\n", string(data))
+}
+
+func TestValidateWith_Argv(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, `{"valid":true}`, "", 0)
+	ctx := context.Background()
+
+	require.NoError(t, Validate(ctx, c, "./k"))
+	require.NoError(t, ValidateWith(ctx, c, "./k", WithOffline()))
+
+	data, _ := os.ReadFile(argFile)
+	require.Equal(t,
+		"kit validate --json ./k\n"+
+			"kit validate --json --offline ./k\n", string(data))
+}
+
+// kit validate has no --resolved flag.
+func TestValidateWith_RejectsResolvedWithoutRunningTheCLI(t *testing.T) {
+	argFile := filepath.Join(t.TempDir(), "args.txt")
+	c := fakeClient(t, argFile, `{"valid":true}`, "", 0)
+
+	err := ValidateWith(context.Background(), c, "./k", WithResolved())
+	require.ErrorContains(t, err, "WithResolved")
+	_, statErr := os.Stat(argFile)
+	require.True(t, os.IsNotExist(statErr), "the CLI must not run")
+}
+
+// An --offline refusal of a v3 source kit is still a valid:false report.
+func TestValidateWith_OfflineRefusalIsErrKitRejected(t *testing.T) {
+	c := fakeClient(t, "", `{"valid":false,"error":"kit ./k is a v3 source kit and this load path has no kit builder configured"}`, "", 1)
+	err := ValidateWith(context.Background(), c, "./k", WithOffline())
+	require.ErrorIs(t, err, client.ErrKitRejected)
+	require.ErrorContains(t, err, "no kit builder configured")
+}
