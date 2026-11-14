@@ -45,9 +45,13 @@ func WithStoppedLongerThan(d string) PruneOption {
 // A running sandbox is never a candidate, whatever the options.
 //
 // A real prune does not read the CLI's confirmation lines: their wording
-// changed at v0.51.0 ("Sandbox 'X' removed" disappeared) and the CLI still
-// refuses --json without --dry-run. Instead it reads the candidates from a dry
-// run, runs the prune, and returns the candidates the daemon no longer lists.
+// changed at v0.51.0 ("Sandbox 'X' removed" disappeared), and --json on a
+// real prune is unverified at v0.51.0 (v0.42.1 refused it). Instead it reads
+// the candidates from a dry run, runs the prune, and returns the candidates
+// the daemon no longer lists.
+//
+// WithStoppedLongerThan's since= filter is no longer in the v0.51.0 help,
+// which documents only until=TIMESTAMP, but it still filters: verified live.
 func Prune(ctx context.Context, c *client.Client, opts ...PruneOption) ([]string, error) {
 	cfg := &pruneConfig{}
 	for _, o := range opts {
@@ -62,7 +66,7 @@ func Prune(ctx context.Context, c *client.Client, opts ...PruneOption) ([]string
 		filter = append(filter, "--filter", "since="+cfg.since)
 	}
 
-	// The CLI accepts --json only on a dry run; a real prune refuses it.
+	// --json is used only on the dry run; see the doc comment.
 	out, err := r.Capture(ctx, nil, append([]string{"prune", "--dry-run", "--json"}, filter...)...)
 	if err != nil {
 		return nil, err
