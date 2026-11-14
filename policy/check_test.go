@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/squall-chua/sbx-go-sdk/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -154,4 +155,16 @@ func TestCheckHTTP_EmptyURLIsRejectedLocally(t *testing.T) {
 	}))
 	_, err := CheckHTTP(context.Background(), c, "")
 	require.Error(t, err)
+}
+
+// The daemon always sends "allowed". A reply without it, or with the wrong
+// type, must not read as a silent deny.
+func TestCheckHTTP_MalformedReplyIsUnexpectedFormat(t *testing.T) {
+	for _, reply := range []string{`{}`, `{"allowed":"yes","type":"http"}`, `[]`} {
+		c := stubPolicyClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Write([]byte(reply))
+		}))
+		_, err := CheckHTTP(context.Background(), c, "https://h.example.com/")
+		require.ErrorIs(t, err, client.ErrUnexpectedFormat, "reply %s", reply)
+	}
 }

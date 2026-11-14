@@ -2,7 +2,9 @@ package policy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/squall-chua/sbx-go-sdk/client"
@@ -109,6 +111,9 @@ func Check(ctx context.Context, c *client.Client, target string, opts ...CheckOp
 // rawURL must be an absolute http or https URL; the daemon rejects anything
 // else with 400. Like the CLI, the check resolves no hostnames and makes no
 // request. It uses the same REST endpoint as Check, with type "http".
+//
+// A reply without a boolean "allowed" is client.ErrUnexpectedFormat rather
+// than a deny.
 func CheckHTTP(ctx context.Context, c *client.Client, rawURL string, opts ...CheckOption) (*Authorization, error) {
 	if rawURL == "" {
 		return nil, errors.New("policy check http: url must not be empty")
@@ -119,9 +124,18 @@ func CheckHTTP(ctx context.Context, c *client.Client, rawURL string, opts ...Che
 	}
 	body := checkRequest{Type: "http", Target: rawURL, Method: cfg.method, SandboxID: cfg.sandbox}
 
-	var auth Authorization
-	if err := c.Transport().DoJSON(ctx, http.MethodPost, "/policy/network/check", body, &auth); err != nil {
+	var raw json.RawMessage
+	if err := c.Transport().DoJSON(ctx, http.MethodPost, "/policy/network/check", body, &raw); err != nil {
 		return nil, client.MapError("policy-check-http", err)
+	}
+	// "allowed" is always sent; without it a zero Authorization would read as
+	// a silent deny.
+	var probe struct {
+		Allowed *bool `json:"allowed"`
+	}
+	var auth Authorization
+	if json.Unmarshal(raw, &probe) != nil || probe.Allowed == nil || json.Unmarshal(raw, &auth) != nil {
+		return nil, fmt.Errorf("%w: policy check http: no boolean \"allowed\" in %s", client.ErrUnexpectedFormat, raw)
 	}
 	return &auth, nil
 }
